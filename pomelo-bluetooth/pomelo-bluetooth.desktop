@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Bluetooth
+Name[zh_TW]=藍牙
+Comment=配對與管理藍牙裝置
+Keywords=bluetooth;headphones;mouse;keyboard;pair;藍牙;耳機;滑鼠;鍵盤;配對;
+Exec=pomelo-bluetooth
+Icon=pomelo-bluetooth
+Type=Application
+Categories=Settings;HardwareSettings;
+StartupWMClass=pomelo-bluetooth
