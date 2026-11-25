@@ -1,0 +1,4 @@
+wlr-screencopy-unstable-v1.xml、wlr-output-management-unstable-v1.xml、wlr-output-power-management-unstable-v1.xml
+來自 wlroots 0.17.1 原始碼的 protocol/ 資料夾（wlr-protocols 專案，https://gitlab.freedesktop.org/wlroots/wlr-protocols），
+各檔案開頭的 <copyright> 區塊是它們的授權（MIT 風格）。wlr-layer-shell-unstable-v1.xml 見 LICENSE-wlr-layer-shell-unstable-v1.txt。
+只是協定的 XML 介面定義，建置時用 wayland-scanner 產生 C 程式碼，不是我們自己的程式碼。
