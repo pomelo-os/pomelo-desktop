@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# 小柚瀏覽器：Ubuntu 24.04 起一般程式不能建立使用者命名空間，WebKit 的網頁沙箱（bwrap）需要它。
+# 這份設定什麼都不限制，只是給程式一個名稱並允許 userns（跟 Ubuntu 的 epiphany、devhelp 一樣）。
+abi <abi/4.0>,
+include <tunables/global>
+
+profile pomelo-browser /usr/bin/pomelo-browser flags=(unconfined) {
+  userns,
+
+  # 本機要加的規則放在 /etc/apparmor.d/local/pomelo-browser
+  include if exists <local/pomelo-browser>
+}
