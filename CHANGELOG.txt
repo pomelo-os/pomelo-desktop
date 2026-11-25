@@ -1,0 +1,1194 @@
+Pomelo 更新紀錄
+
+0.42 更新（2026-11-18）：
+- 原生 Wayland 階段 4 第 1 步（2026-11-20，見 docs/Wayland轉移計畫.md「階段 4 進度」、docs/Wayland階段4缺口清單.md）：只動 libpomelo 與 compositor，各程式還沒轉；X11 工作階段行為不變。
+  · 拖放：原生程式可以拖出與接收（libpomelo 新 API：pmwl_dnd_target／pmwl_dnd_fetch／pmwl_dnd_files、pmwl_drag_start／pmwl_drag_start_files，pm_ui_on_drop 原生也能用、新 pm_ui_drag_files）；compositor 補了拖放（拖曳圖示跟著游標、Esc 取消）與 XWayland 程式（Firefox、LibreOffice…）→ 原生程式的拖放橋（新檔 xdnd.c）；原生 → XWayland 的放下要 wlroots 的第二個 patch（packaging/docker/wlroots-0.17.1-client-list-no-override-redirect.patch），重新編 wlroots 才生效。
+  · 其他共用能力：剪貼簿任何格式（圖片、檔案清單）、primary selection（選取＋中鍵貼上）、游標形狀、視窗標題／app id／最小大小／全螢幕／最大化、按鍵放開與 evdev 掃描碼、側鍵、水平與精細捲動、輸入法預編輯與用途、相對滑鼠與快捷鍵抑制（遠端桌面、虛擬機器）、防止閒置、子畫面；新事件要視窗用 pmwl_want 開，舊程式不受影響。
+  · 測試：headless compositor 加虛擬滑鼠端對端測過原生↔原生、原生↔XWayland（Xlib 的 XDND 測試程式）、取消與放在沒有目標的地方，並實際拖進 pomelo-network 觸發 VPN 設定檔匯入；測試程式在 libpomelo/tests。沒有新的介面字串。
+- 原生 Wayland 階段 4 第 2 步（2026-11-20）：A 批與 B 批程式改成同一份程式碼雙後端——Wayland 工作階段（有 compositor）走原生視窗、不開 X 連線，
+  X11 工作階段或 POMELO_BACKEND=x11 照舊：計算機、文字編輯器、看圖、關於這台電腦（pomelo-system --about）、繪圖、文書處理器、試算表、簡報、PDF 閱讀器。
+  外觀、操作、快捷鍵與轉換前一致。
+  · libpomelo 共用薄層：pmwl_to_xevent／pmwl_xkey 把原生事件轉成 XEvent（兩個後端共用同一份事件處理）、pmwl_resize（程式自己改視窗大小）、
+    PMWL_POPUP／PMWL_XLATE（選單座標）；pmwl_begin 改成等緩衝釋放之後才讀視窗大小（以前離開全螢幕時會被舊大小的畫面拉回去）。
+  · 各程式：剪貼簿（文字；看圖、繪圖是 image/png）、拖放開檔（編輯、看圖、繪圖、辦公室、PDF）、輸入法（text-input-v3，選字列跟著游標；
+    文字編輯器也畫預編輯字串）、游標形狀（PDF、繪圖；看圖全螢幕隱藏游標）、全螢幕（看圖、簡報、PDF；簡報時防止閒置，雙螢幕時簡報者畫面是另一個螢幕的全螢幕視窗）、
+    精細捲動（PDF 觸控板順順捲）、視窗標題與 app id。「同時只開一個視窗」（文字編輯器、PDF）改用抽象 Unix socket（原生沒有根視窗屬性）；
+    文字編輯器開著的檔案給小柚讀：$XDG_RUNTIME_DIR/pomelo-edit-docs.<PID>。
+  · compositor 修正：程式的選單（xdg_popup）用 Esc 關掉之後鍵盤焦點沒回到視窗（要再點一下才能打字）——popup 收掉時 xdg 的鍵盤 grab 還沒結束，
+    notify_enter 被吃掉，現在等 grab 結束再還焦點。
+  · 修正：文字編輯器儲存已有路徑的檔案後路徑變空字串、分頁變成「未命名」（同一緩衝區重疊的 snprintf 在 FORTIFY_SOURCE 下變空字串；X11 版同樣有）。
+  · 測試：headless compositor＋虛擬滑鼠＋wtype＋grim 逐一測過開啟、鍵盤、滑鼠、選單、對話窗、剪貼簿、拖放、關閉；辦公室三套 docx／xlsx／pptx 存檔再開一次，
+    PDF 翻頁縮放選取拷貝；X11 後端各程式開起來截圖確認沒退步。測試腳本在 scratchpad（階段 4 第 2 步）。
+  · 還沒做／沒驗證：簡報雙螢幕的簡報者畫面、文字編輯器預編輯畫法（pomelo-input 不送預編輯字串，只編譯過）、繪圖壓力感應與自訂筆刷游標（X11 版也沒有，用十字游標）。
+- 原生 Wayland 階段 4 第 3 步（2026-11-20）：C 批——檔案管理員、終端機改成同一份程式碼雙後端（Wayland 工作階段走原生視窗、不開 X 連線；X11 或 POMELO_BACKEND=x11 照舊）。
+  · 檔案管理員（pomelo-files）：拖放用 libpomelo 的原生拖放——拖出去（pmwl_drag_start_files，圖示跟著游標，目標按 Ctrl／Shift 決定拷貝或移動）、拖進來（先讀檔案清單，游標在能放的資料夾上
+    反白、停一秒打開資料夾、邊緣自動捲動，同一個磁碟偏好移動、不同磁碟偏好拷貝、資料夾放進自己裡面不收）；原生拖到 XWayland 程式、XWayland 程式拖進來、跟 GTK4（小柚瀏覽器同一個工具箱）互拖都測過。
+    剪貼簿：x-special/gnome-copied-files（cut／copy）、text/uri-list、純文字路徑，跟其他程式互通；剪下貼上之後清掉，不會再貼第二次。右鍵選單、刪除確認選單、縮圖、重新命名輸入框的輸入法
+    （選字列跟著輸入框，預編輯字串若輸入法有送就畫在游標處）、鍵盤、垃圾桶（gio trash、放回、永久刪除）、開檔都跟 X 後端一樣。X 後端自己的 XDND 程式碼完全保留。
+    與 X 版不同：原生拖曳圖示沒有角落的「＋」「不能放」小標記（圖示由 compositor 畫、拖的當中不能換）；同一個資料夾內按 Ctrl 拖曳複製不支援（放不下去）。
+  · 修正（X11 版也有）：重新命名輸入框裡單獨按 Shift（或其他修飾鍵）會把預設反白的檔名取消，接著打的字變成插在後面（「p2new.png」而不是「new.png」）；現在修飾鍵本身不算打字。
+  · 終端機（pomelo-terminal）：原生後端用 cairo（FreeType＋fontconfig）畫字，不用 Xft：字型挑選、粗體／斜體、備用字型（沿用同一套 fontconfig 邏輯）、格子大小（跟 Xft 一樣取「M」的寬度與
+    ascent＋descent，Xft 用螢幕 dpi、Wayland 沒有，固定 96）、行距、游標形狀、底線／刪除線／方框字元／方塊字元、寬字元（CJK 兩格）、彩色 emoji、256 色與真彩色都跟 X 版逐一對照截圖相同。
+    畫在自己的影像緩衝上再整張送出（跟 X 的 pixmap 一樣只重畫變動的行）。鍵盤（修飾鍵組合、功能鍵、Alt＝Meta）、輸入法（pomelo-input 注音，選字列跟著游標）、剪貼簿與 primary
+    selection（選取即複製、中鍵貼上、Ctrl+Shift+C／V、括號貼上）、滑鼠回報（1000／SGR 1006）、精細捲動（滾輪一格 15 像素＝3 行、觸控板連續；替代畫面送方向鍵、滑鼠回報模式送滾輪鍵）、
+    分頁（＋、點選切換、右鍵選單；×、中鍵關閉、滾輪切換沿用同一份程式但沒另外測）、拖檔案進來＝打出路徑（含空格與中文檔名加引號）、OSC 標題、vim／less、Ctrl+C、調整視窗大小（行列數跟著變、pty 視窗大小同步）都測過。
+    與 X 版不同：Wayland 沒有「視窗大小以格子為單位」的提示，拖到不是整數格時右邊與下面會多一點邊距；最小大小用 xdg 的 min size（compositor 目前不強制，終端機自己限制至少 2 欄 1 列）。
+    終端機沒有搜尋功能、也沒有響鈴（X 版也沒有），這次沒有新增。
+  · libpomelo：pmwl_next_fds 可以等的外部 fd 從 16 個增加到 48 個（終端機每個分頁一個 pty，上限 32 個分頁）。
+  · 修正：「同一緩衝區重疊的 snprintf／字串函式在 FORTIFY_SOURCE 下變成空字串」全面稽核（編譯器 -Wrestrict＋啟發式掃描，整個樹）。找到三處（X11 版同樣有）：
+    封包分析（pomelo-packets）「套用」統計表的過濾條件、依統計項目建立過濾條件時，過濾欄位的字串被自己複製自己而變空，結果套用了空的過濾條件；
+    Docker 管理（pomelo-docker）工作失敗時錯誤訊息沒有對應的說明（friendly 回傳原字串）就被自己複製自己，訊息變空，只剩「失敗」；
+    網路掃描（pomelo-netscan）匯出時「去識別化主機名稱」原地處理，名稱變成空字串或亂碼。文字編輯器、文書處理器、試算表、簡報那一處已在第 2 步修掉，這次再掃一次沒有殘留。
+  · 測試：headless compositor（含有 patch 的 wlroots）＋虛擬滑鼠＋wtype＋grim，X11 後端用 Xvfb 對照。腳本在各程式的 tests 資料夾與 libpomelo/tests/wl-apps（含 setup.sh、lib.sh、稽核腳本）。
+- 原生 Wayland 階段 4 第 4 步（2026-11-20）：D 批——截圖／錄影、密碼認證視窗、電源管理、鑰匙圈密碼提示窗改成原生雙後端
+  （Wayland 工作階段走原生視窗、不開 X 連線；X11 工作階段或 POMELO_BACKEND=x11 照舊）。
+  · 截圖與錄影（pomelo-screenshot）：選取範圍的覆蓋層改成每個螢幕一張 overlay 層的 layer-shell 全螢幕視窗（第一張獨佔鍵盤；畫面是事先用 screencopy 拍好的
+    凍結畫面，所以看到的就是存下來的；拖曳可以跨螢幕）；工具列（Super+Shift+5）、倒數、右下角縮圖（從右邊滑進來、右鍵選單）也是 overlay 層的 layer 視窗，
+    圓角外面透明；拷貝到剪貼簿用 wl_data_device（image/png，拷貝後留著服務到別人接手）；全螢幕／視窗／範圍、延遲、點選視窗模式（空白鍵切換）、錄影
+    （螢幕、範圍、視窗、暫停、放棄）功能與 X 版一致。只有錄影狀態（_POMELO_RECORDING，選單列的紅色計時看的）與點選視窗用的視窗清單
+    （_POMELO_WL_STACK）要臨時連 XWayland 讀寫根視窗屬性，連不上時只是不能點選視窗。libpomelo 新增 pmwl_clip_owned。
+  · 密碼認證視窗（pomelo-polkit）：原生版是 overlay 層的 layer 視窗、獨佔鍵盤（輸入密碼時別的程式收不到按鍵、也不會被別的視窗蓋住），不啟用輸入法，
+    密碼欄只畫圓點；「以管理員身分驗證」「切換」說明與取消／錯誤密碼提示版面不變。新增 --demo／--demo-nonadmin：不連 polkit、不取得任何權限，
+    只顯示視窗（密碼 demo 通過，其他算錯），給測試用。
+  · 電源管理（pomelo-power）：閒置偵測改用 ext-idle-notify（libpomelo 新增 pmwl_idle_watch／pmwl_idle_clear／pmwl_can_idle、事件 PMW_IDLE），
+    原生時不開 X 連線（只有看「螢幕鎖好了沒」的 _POMELO_LOCKED 才臨時連 XWayland）；螢幕保護程式／鎖定／關螢幕／休眠的計時與
+    power.lock_after、power.screen_off_after、power.suspend_after、saver.enable 設定行為不變，設定改了馬上重新登記，有輸入就重算。X11 後端仍用 IDLETIME。
+  · 鑰匙圈（pomelo-keyring --daemon）的「建立／解鎖鑰匙圈」密碼提示窗：原生 layer 視窗，同密碼認證視窗的做法。
+    修正（X11 版也有）：「兩次輸入的密碼不一樣」「請輸入密碼」的提示按 Enter 之後立刻被清掉、看不到。
+  · pomelo-lock：已經沒有 X 殘留（原生路徑 DISPLAY 不設定也能鎖、解鎖）；不用改。
+  · 其他混合程式的 X 連線逐一檢查（見缺口清單）：pomelo-session、pomelo-panel、小柚、螢幕保護程式的 X 連線是 IPC 必要（根視窗屬性），保留；
+    pomelo-display 原生時本來就不開 X。
+  · 測試：headless compositor＋虛擬滑鼠＋wtype＋grim；截圖（全螢幕／範圍／視窗／剪貼簿／倒數／工具列／縮圖選單／雙螢幕跨螢幕拖曳／錄影與暫停），
+    密碼視窗（錯誤、成功、取消、按鍵不會漏給後面的程式、非管理員版面），電源（假 systemctl、假 pomelo-lock，一分鐘縮成一秒；關螢幕 grim 拍不到、動滑鼠亮回來），
+    鑰匙圈提示窗（私有 D-Bus、全新鑰匙圈）；X11 後端（Xvfb）各自對照。測試腳本在各程式的 tests 資料夾。
+  · 還沒做／沒驗證：真的 polkit 流程（pkexec、pomelo-backup／cluster／doctor 的管理員密碼）沒有實機測（不能取得 root，只測了 --demo 假後端；polkit 的代碼路徑沒改）；
+    原生截圖視窗模式在沒有 XWayland 時只剩範圍選取；電源的休眠／睡醒（真 logind）、實機螢幕關閉；螢幕縮放（HiDPI）；E 批（播放器、虛擬機器、遠端桌面畫面）還沒做。
+- 原生 Wayland 階段 4 第 5 步（2026-11-20）：E 批——影音播放器、虛擬機器的畫面視窗、遠端桌面的連線視窗改成同一份程式碼雙後端
+  （Wayland 工作階段走原生視窗、不開 X 連線；X11 工作階段或 POMELO_BACKEND=x11 照舊）。階段 4 到此完成，只剩壓縮檔瀏覽視窗（pomelo-archive 的 gui-browse.c）還沒轉。
+  · libpomelo 新能力：自訂游標圖（pmwl_cursor_image，來賓游標）、frame callback（pmwl_frame_request／pmwl_frame_wait／PMW_FRAME，影片與整張重畫的視窗對時、不丟格）、
+    剪貼簿變了的事件（PMW_CLIP）、evdev→PC 掃描碼（pmwl_scancode）、pmwl_fd（跟別的事件一起等 Wayland fd）、pmwl_pointer_hint。舊程式不受影響。
+    評估後不做：HiDPI／fractional-scale（compositor 沒有輸出縮放設定，沒東西可接也沒東西可驗證）、xdg-activation（用不到）。
+  · 影音播放器：影片與音樂畫面本來就是自己的 ffmpeg→cairo 影像，不是 X 視窗嵌入，整個視窗直接畫；影片播放時依 frame callback 送畫面（不丟格、不白白重畫）；
+    全螢幕、隱藏游標、防止閒置（取代每 30 秒 XResetScreenSaver）、拖檔案進來播放、滾輪與觸控板精細調音量；媒體鍵與「同時只開一個視窗」改用抽象 Unix socket。
+    選單列的播放小圖示仍靠 X 根視窗屬性，有 XWayland 才寫，沒有也能播。
+  · 虛擬機器畫面視窗：全螢幕時 Alt+Tab、Super 等系統快捷鍵交給虛擬機器（keyboard-shortcuts-inhibit，取代 XGrabKeyboard）；來賓游標用自訂游標圖；
+    鍵盤直接用 evdev 碼換成掃描碼；剪貼簿與虛擬機器雙向同步（VNC 傳統剪貼簿，只有 Latin-1；只有原生後端有）；視窗大小跟著來賓解析度；工具列選單與對話窗原生。
+  · 遠端桌面連線視窗：同樣的做法；剪貼簿（文字）雙向同步、遠端游標、全螢幕時快捷鍵交給遠端、憑證與登入對話窗原生。
+  · 測試：沒有真的 Windows 或 QEMU，所以寫了假伺服器——用 FreeRDP 3 的 server API 寫的最小 RDP 伺服器（TLS＋NLA、游標、剪貼簿）與最小 VNC＋QMP 伺服器（Python），
+    headless compositor＋虛擬滑鼠＋標準 evdev 碼的虛擬鍵盤＋grim 截圖，逐項驗證畫面、游標、掃描碼、滑鼠、全螢幕與快捷鍵抑制（Alt+Tab 在視窗模式被 compositor 吃掉、全螢幕時到達對方）、剪貼簿雙向、防止閒置；
+    X11 後端對同樣的假伺服器對照確認沒退步。測試腳本在 pomelo-player／pomelo-vm／pomelo-remote 的 tests/。
+  · 還沒做／沒驗證：真的聲音輸出、HiDPI、真的 QEMU（USB 穿透、快照、光碟、儲存狀態、解析度跟著視窗）、真的 Windows／xrdp 伺服器（RemoteFX、GFX、H.264、動態解析度、聲音、磁碟機／印表機對應）、
+    FreeRDP 2、實機 GPU、Fedora／Rocky／Debian 的重新建置與打包；遠端伺服器要求移動游標時 Wayland 不允許（本機游標留在原地）；鎖定鍵（Caps／Num）同步用最近一次事件的修飾鍵。
+  · 稽核：整個樹逐一檢查哪些程式在 Wayland 工作階段仍連 X，分成「IPC 必要」「第三方」「刻意不改」，理由寫在 docs/Wayland階段4缺口清單.md；其餘 Pomelo 圖形程式不需要 X 連線也能運作。
+- 原生 Wayland 階段 4 第 6 步（2026-11-20）：壓縮管理員（pomelo-archive）瀏覽視窗改成雙後端，階段 4 的程式轉換到此完成（小柚的設定／確認／對話視窗原本還要 X，已在下面一項補上）。
+  · 壓縮管理員：Wayland 工作階段走原生視窗、不開 X 連線；X11 或 POMELO_BACKEND=x11 照舊。瀏覽、選取、雙擊進資料夾、右鍵選單、
+    解壓縮到…（含進度視窗）、開啟／加入檔案對話窗、密碼視窗、拷貝路徑（剪貼簿與 primary selection）、拖放（把壓縮檔拖進來開啟、
+    把檔案拖進來加入或建立）都在 headless compositor 測過；X 版沒有「拖出」，原生版也沒有新增。
+  · 修正（X11 版也有）：加入檔案後視窗重新載入壓縮檔時，檔名變成空的（標題列與路徑列只剩「壓縮管理員」）——來源與目的相同的 snprintf
+    在 FORTIFY_SOURCE 下變成空字串。
+  · 回歸：不設 DISPLAY 時階段 2、3 的程式（容器、語言、監視、網路、音效、儲存、外觀、藍牙、軟體、系統、虛擬機器、遠端桌面、鑰匙圈、
+    控制中心、通知、啟動器、鎖定、登入畫面預覽、面板、電源、顯示器、螢幕保護程式）都能在 headless compositor 開窗或常駐；
+    看圖用新編的版本測過看圖、全螢幕、拖放。仍連 XWayland 的 IPC 程式（面板、工作階段、小柚、螢幕保護程式）沒有 XWayland 時的
+    行為已記在缺口清單，其中工作階段（靜態檢查，沒實際跑）與小柚設定／對話視窗在沒有 XWayland 時還不能用，列入階段 5 的前提。
+  · 實機沒有驗證：以上都是開發機 headless compositor 的結果。
+- 小柚的設定、確認、對話視窗改成原生 Wayland（2026-11-20，補上階段 4 回歸發現的缺口）：Wayland 工作階段不經過 XWayland，沒有 DISPLAY 也能開；X11 工作階段或 POMELO_BACKEND=x11 照舊。
+  · 範圍：設定頁（大腦、線上服務、金鑰、各開關）、所有動手前的確認視窗（建立／修改／丟垃圾桶文件、主機醫生處理、防火牆等「查詢與處理」、安裝、關機…）、對話視窗（螢幕上方中央的彈出式）、小柚背單字。桌面上的小柚角色（pet.c）原本就是原生，沒動。
+  · 確認視窗的行為不變：沒按或 60 秒逾時＝不同意、關掉視窗＝不同意、小柚不能代按；確認視窗開著時對話視窗會先收起來（原生版是把獨佔鍵盤的 overlay 層整個拆掉，按完再開回來，不然會擋住確認視窗）。
+  · libpomelo 新增 pm_ui_hide(hide)（原生彈出式視窗暫時收起來／叫回來；X 版沒有作用）與 PmUI.native 欄位；對話視窗用背景執行緒算答案、主迴圈每 120 毫秒的 tick 重畫，確認視窗結束後不用再按一個鍵就會刷新（測過）。
+  · 測試（開發機 headless compositor，env -u DISPLAY，假線上服務 fake-online.py、假 HOME、假 PATH／假防火牆資料夾，沒有動到任何真的東西）：設定頁（切到線上、同意說明、輸入金鑰、顯示金鑰、開關）、對話視窗（打字送出、等待中的取消鈕、Esc 關閉）、
+    建立／修改／丟垃圾桶文件確認（按確定與取消）、主機醫生處理確認（確定與取消）、防火牆開放埠確認、60 秒逾時、直接關掉確認視窗；與 X11 後端（Xvfb）截圖對照。
+  · 沒驗證：真實 GPU compositor、多螢幕（對話視窗放在第一個螢幕）、真實鍵盤與輸入法。
+- 小柚「開文件並寫進去」與等待時的介面（2026-11-20，見 docs/AI小幫手.md「開文件並寫進去、查資料寫進文件、想很久怎麼辦」）：使用者實測「幫我開啟文件 並將自我介紹寫進去」小柚一直「思考中」沒結果，查出來不是思考模式（模型是 Instruct 版）：這句話沒有快速通道、交給模型，模型選錯工具（doc_open 找不到→create_file 被擋→反問，約 42 秒）或寫到字數上限被截斷（75 秒），而且本機大腦的介面沒有進度、取消與逾時；第一次提問還要載入模型並讀入約 5500 個 token 的說明（實測約 74 秒）。
+  · 快速通道補兩步句型（quick-doc.c、quick-compose.c；英文與簡體中文一樣）：「開新文件」「開啟新簡報」（建空白檔並開啟）、「幫我開啟文件 並將自我介紹寫進去」「寫一份自我介紹到文件」「開啟文件 並將「…」寫進去」、「寫一份關於旅遊的文件／簡報」「建立一份會議紀錄文件 然後打開它」（請本機模型只寫內容、不呼叫工具，草稿經確認視窗給你看）、「打開試算表／簡報／文書處理器」（開程式）。光說「打開文件」仍是開「文件」資料夾。
+  · 「自我介紹」沒說是誰的：預設寫小柚自己的（程式寫好的內容，不用模型、立刻完成，跟著介面語言翻譯），回答裡說明；說「我的自我介紹」只放你的名字與空白欄位，小柚不知道你的背景、不替你編。
+  · 「查今日行情 然後寫到文件內 並開啟文件」：先向搜尋服務查（畫面標示）、讀網頁、請模型只根據結果整理；程式查核數字（3 位數以上的數字在來源裡找不到就整行拿掉）、並附資料來源、查詢時間與「小模型整理、可能有誤」；搜尋失敗就明講、不建文件。限制：搜尋摘要通常沒有當天數字，文件會老實寫沒有提到。
+  · 「建好之後開啟」由程式做（模型路徑也一樣）：doc_create 成功、使用者說要開啟、模型沒開，就接著 doc_open；確認視窗只在建立那一次跳，不代替使用者按。doc_open 找不到時提示模型改用 doc_create。
+  · 等待：對話視窗與桌面泡泡顯示「小柚正在想…（已等 N 秒）」（載入模型、寫草稿、上網查、等確認視窗各有說明），20 秒後提醒可取消；本機也有「取消」（Esc），取消會真的中止 llama-server 的推論；逾時預設 300 秒（assistant.local_timeout）並說明原因；max_tokens 300→500，被截斷的工具呼叫不再顯示殘缺的 <tool_call>。
+  · doc_create 的確認視窗現在列出將寫入的內容（前 12 行）。知識庫：「自我介紹」的「介紹」不再被當成問功能（否則這類句子被附上知識庫、不准呼叫工具）。
+  · 測試：quick-cases.tsv 774→822 句（含英文、簡體）、online-test 54（新增 3 項）、host-test 16、doc-test 104、ctl-test 80、kb-eval 新增 blind6，全過；Xvfb 截圖實際看過；42 句新介面字串補進 13 種語言。
+- 小柚多國語言，第一階段（2026-11-20，見 docs/AI小幫手.md「多國語言」）：先做英文與簡體中文，日、韓、德、法、西只有少量範例（部分支援），其他語言只建好格式。各語言的說法沒有母語者校對。
+  · 快速通道（不經模型的固定指令）：句型維持依標準中文寫（繁體中文行為與 767 句測試一字未改），各語言放在 quick-lex/<語言>.tsv（說法→標準中文，gen-lex.py 編成 quick-lex-data.h，引擎 quick-lex.c）。英文 287 條說法（音量亮度、開關程式、Wi-Fi 藍牙、鎖定、時間天氣、設定頁、電源、截圖、提醒、查狀態、健康檢查、套件、防火牆、異常登入、備份、VPN、網路、桌面、文件操作、換算…）；簡體中文先轉繁體再比對，另有 22 條大陸用語；日、韓、德、法、西只有音量、亮度、開程式、鎖定、Wi-Fi、藍牙、時間；其餘語言空表。依介面語言優先，中文與英文永遠同時有效（日文介面也能說英文指令）。pomelo-assistant --quick-lang 列出各語言程度。順手修掉英文「search for files named report」被切成「找 snamedreport」。
+  · 系統提示第 1 條依介面語言（繁體中文原文不變；簡體中文用簡體；其他語言「Always reply in <語言>…」），系統附註最後加「；reply in English」（實測 2B：英文問題回答夾中文 16／17 → 3／13，工具選擇 55／64 → 57／64，沒退步），線上大腦同樣；model-eval.py 加英文題組（EN=1）與 RULE1 切換。
+  · 工具結果與快速通道的回答（約 650 句）包進 _()；「做成了沒有」不再靠中文開頭字（tool_succeeded、direct_reply、主機處理的「使用者不同意」），改用內部旗標，翻成別的語言也照樣判斷。新字串清單：pomelo-assistant/i18n-new-strings-multilang.txt（尚未翻譯，沒有動 libpomelo/i18n/*.tsv）。
+  · 知識庫：簡體問題轉繁體並換大陸用語；英文問題用詞表（kb-xlate.c）換成中文關鍵字再查；其他語言在本機模型可用時請模型先翻成中文；非中文問題附知識庫時提醒模型用使用者的語言回答；kb/faq.md 加英文版常見問題與各語言現況。kb-eval.tsv 新增 en、cn、ml（日韓德法西）題組（不算在 all，all 的成績完全不變）：英文前三名 94%（以前 85%）、簡體 98%，都比繁中 99% 差一些；其他語言有 2B 模型先翻成中文時 14／16 附上知識庫、前三名 16／16（沒有模型是 0／16 附上），2B 翻譯偶爾出錯；題組不是 blind。
+  · 用說的：確認 lsn_lang() 與介面語言對應（國語、粵語、英文、日文、韓文；其他語言圖示不顯示，設定頁與 Super+Shift+V 有說明，13 種翻譯檔都有這兩句）。
+  · 測試：quick-cases.tsv 加第 5 欄（介面語言，用 LANG 切換 pm_lang），775＋英文 247＋簡體 89＋日韓德法西各約 20＋未支援語言與反例，全過；online-test 51、host-test 16、doc-test 104、ctl-test 80 全過。
+- 小柚能呼叫、詢問、查詢、處理 Pomelo 原有的功能（2026-11-20，見 docs/AI小幫手.md「查詢與處理 Pomelo 原有的功能」）：以前防火牆、備份、VPN 的快速通道都走 run_command（要先打開「允許小幫手執行指令」，預設關閉，所以其實用不了），現在改成專用工具，不依賴那個開關。
+  · 開啟分頁：open_settings 改成資料表驅動（單一來源，工具說明的 enum 與比對的表同步），從 28 頁增加到 80 頁，補上系統設定的登入畫面與應用程式選單、佈景主題的多桌面、主機醫生 11 個分頁、VPN 5、備份 5、防火牆 7、容器叢集 12、儲存空間的裝置／清理／分析、網路診斷、軟體更新、控制中心、鑰匙圈、螢幕保護程式、行事曆、小柚設定、封包分析器；每個頁面都對照各程式的原始碼驗證（鑰匙圈沒有設定頁選項、行事曆的 --settings 只是預留，這兩個只開視窗）。
+  · 查詢（pomelo_query，唯讀、不用確認、輸出去控制字元並截短）：防火牆狀態／規則／封鎖清單、備份狀態／計畫、VPN 狀態／診斷／客戶端、容器、虛擬機器、外接裝置、空間用在哪、可更新的套件、網路診斷，以及「登入失敗依來源 IP 統計」（「告訴我目前異常登入有哪些 IP」「有人在猜我的密碼嗎」：讀主機醫生的日誌檢視，只統計這個帳號讀得到的日誌，沒有權限時明說；可接著說「封鎖第 1 個」）。
+  · 處理（pomelo_act，一律先跳確認視窗，沒按或逾時＝不同意，小柚不能代按，不依賴 allow_exec）：防火牆開放／擋掉埠（確認視窗寫清楚埠、協定、對全部來源或只對某個 IP，22 埠會提醒 SSH）、刪規則、封鎖與解除封鎖 IP、立刻備份、從備份還原、虛擬機器啟動／關機（強制關閉另外確認）、容器啟動／停止、退出外接裝置、安裝系統更新（pkexec）。參數由程式驗證（埠 1–65535、IP 與網段、規則編號、還原路徑），名稱類的必須在系統自己列出的清單裡；不能封鎖自己或連進來的 SSH 來源；沒有刪除類的動作。
+  · 句型：音量與亮度「請調整音量大聲 40」「喇叭聲音調成百分之四十」「把聲音開到四十」＝設成 40（「加 10」才是加減）；防火牆「開啟 443 port」「關閉／封閉／擋掉／拒絕 80 port」「只允許 60.248.142.180 連 443」；登入失敗統計；備份、VPN、容器、虛擬機器、外接裝置、系統更新的查詢與處理；簡體與英文的常用說法一起收。
+  · 本機 2B 的工具清單只多兩個工具（pomelo_query、pomelo_act）；因為工具說明約多 750 個 token，附上知識庫的問題會超過原本 6144 的脈絡長度，llama-server 的 -c 從 6144 改成 8192（記憶體約多 0.2 GB）。
+  · 測試：make ctl-test（ctltest.sh，80 項，假環境）；快速通道測試 650→767 句（新增句子附 dnf 對照）；線上大腦端對端 45→51 項；主機醫生處理 16 項、文件 104 項不變；知識庫評估多 blind5 組，原本各組成績不變。確認視窗用 Xvfb 實際開起來看過並用滑鼠點過「確定」「取消」。
+- 小柚會開啟、讀、編輯、寫、刪除文件、試算表、簡報（2026-11-19，見 docs/AI小幫手.md「文件、試算表、簡報」）：直接對小柚說「打開 月報.docx」「月報.docx 裡面寫什麼」「把月報.docx 裡的「舊」改成「新」」「在月報.docx 第 2 段後面加上「…」」「把成績.xlsx 的 B2 填 100」「成績.xlsx A1 到 A10 加總放 B1」「在成績.xlsx 新增一列：小美、60、70」「在簡報.pptx 新增一頁，標題「…」」「建立本月開支表」「刪除月報.docx」「還原剛剛刪掉的文件」；要小柚想內容的（「寫一份關於旅遊的文件」「幫我起草一份簡報」）交給 AI 模型。支援 .docx .odt .xlsx .ods .pptx .odp，格式處理直接用小柚文書、小柚試算表、小柚簡報現成的讀寫程式與公式引擎，沒有重寫。
+  · 讀：文件每段文字（標題、清單有標註）、試算表儲存格與公式（可指定範圍）、簡報每頁標題與內容；用小柚文書、試算表、簡報開啟。編輯：文件取代／在某段後插入／改寫某段／刪段／加在最後；試算表指定儲存格填值或公式（範圍填公式時相對參照跟著移動）、最後面新增一列、插入列欄；簡報新增、修改、刪除頁（新頁跟著設計主題）。建立：存到「文件」資料夾（XDG 設定，沒有就 ~/文件 或 ~/Documents），重名自動加編號、絕不覆蓋。
+  · 安全：所有建立、編輯、刪除、還原都先跳確認視窗（寫清楚位置與會改成什麼：取代幾處、改哪一段、哪個儲存格從什麼變成什麼、公式算出多少），沒按或 60 秒沒回應＝不同意，小柚不能替你按；只動家目錄裡這六種副檔名，拒絕 ..、隱藏檔與隱藏資料夾、捷徑、系統目錄、超過 25 MB 的檔案；編輯前自動備份到 ~/.local/share/pomelo/assistant/doc-backups/（每個檔名留 10 份），先寫暫存檔、重新讀入比對通過才換掉原檔；刪除只丟垃圾桶（FreeDesktop 規範，可說「還原」）；檔案內容與檔名都是資料不是指令；解析檔案在受限制的另一個行程裡做；線上大腦讀文件內容前每次都先確認，修改後的原內容只給你看；試算表公式只收看得懂的符號、函式由公式引擎檢查。
+  · 限制：用小柚文書／試算表／簡報的程式碼整份寫回去，原檔裡它們不認得的特殊內容不會留在新版本（所以修改前一定先備份）；有公式的試算表不插在中間（插入時公式參照不會跟著調整），只加在最後面。本機 2B 模型呼叫這幾個工具的正確率沒有實測過，常見說法走快速通道。
+  · 測試：`make -C pomelo-assistant doc-test`（104 項：六種格式建立→讀回→編輯→讀回、備份、重名、垃圾桶與還原、拒絕系統路徑／隱藏／捷徑／過大／損壞、不可信內容、公式安全、線上隱私，有 LibreOffice 時交叉驗證）；快速通道測試 590→650 句、線上大腦端對端 39→45 項、知識庫評估多一組 blind4，其他組成績不變。
+- 小柚會處理主機問題（2026-11-19，見 docs/AI小幫手.md「主機醫生處理」）：對小柚說「檢查主機狀態」「修正登入問題」「修正電腦變慢的問題」，小柚請主機醫生診斷，用白話列出每個發現，建議放在發現的下面，能處理的編成「方案 N」；你說「處理 1」或「全部處理」，小柚才跳出確認視窗（寫清楚做什麼、對象、要不要管理員密碼），你按「處理」才執行，做完重新檢查並回報；小柚不能替你按。
+  · 登入問題：家目錄不見、擁有者不是你、權限不對；磁碟滿；.Xauthority、.ICEauthority 壞了（改名收起來，不刪）；.config、.cache、.local 被 root 占走（還給你的帳號，要管理員密碼）；帳號被連續輸入錯誤密碼鎖住（解除鎖定，要管理員密碼）；登入設定檔裡的 exit、/etc/nologin、登入殼層不能用、登入管理員的驗證設定檔不見（只說明原因與怎麼請管理員處理）。
+  · 電腦變慢：記憶體與交換空間、CPU 高占用與吃記憶體最多的程式（列名單，只限你自己的、只請它正常結束、確認後才做）、磁碟快滿、系統日誌太大、開機自動啟動太多（逐項停用，可還原）、省電模式。
+  · 安全：只能做診斷列出來的白名單方案，模型不能給指令或路徑；不刪檔案、不改密碼、不動 /etc/shadow、不動防火牆與容器、不強制結束；桌面、登入管理員、合成器等程式一律不碰；要 root 的走 pkexec，沒有密碼視窗就不動手；做不到的（硬體本身的問題、要重新開機才會好的）照實說明。快速通道：「檢查主機狀態」「修正登入問題」「修正電腦變慢」「處理方案 1」「全部處理」。原有的「電腦好慢」診斷結尾會提示可以請小柚處理。
+- 終端機（2026-11-19）：分頁列一開始就顯示，右邊有「＋」可以直接再開一個分頁（以前要開了第二個分頁才看得到）。
+- Docker 管理（2026-11-19）：容器、映像、資料卷三個清單上方加了搜尋框、「顯示」（全部／執行中・使用中・有容器在用／已停止・未使用・沒有容器在用）與「排序」（名稱、大小、建立日期；容器有「最新建立」，資料卷有「使用中優先」）；資料卷每一個現在會顯示佔用的空間，標題列顯示總量。刪除沒有其他容器在用的容器時，可以勾選「同時刪除映像」，不用再到映像頁另外刪；映像還有別的容器在用就會保留。
+- 容器叢集（2026-11-19）：節點、Pod、工作負載、儲存、服務的清單加了搜尋、「顯示」（使用中／未使用…）與排序；刪除工作負載或沒人管的 Pod 先出確認卡，可勾「同時刪除映像」（映像還有別的在用就保留）；所有 sudo 密碼欄位都寫明「要輸入有 sudo 權限的管理員帳號的密碼」，帳號沒有 sudo 權限時直接說明，SSH 帳號不再預設成本機登入帳號、也不再默默用 root。
+- 驗證視窗與備份（2026-11-19）：登入的帳號不是管理員時，驗證視窗會直接說明「你的帳號沒有 sudo 權限，請輸入有 sudo 權限的管理員帳號的密碼」（有好幾個管理員時可按「切換」選）；備份精靈勾選「系統設定」時，若你不是管理員也會事先提醒，管理員則寫明輸入自己的密碼。
+- 新程式「VPN 伺服器」（pomelo-vpn，2026-11-18，見 docs/VPN伺服器.md）：用精靈建立並管理 OpenVPN 伺服器，也能設定 Tailscale；需要的軟體在介面上按「下載並安裝」就取回（走系統套件管理員加 pkexec，先顯示來源與指令；Rocky 先啟用 EPEL 與 CRB）。
+  · OpenVPN 精靈八步：確認軟體 → 網路設定（對外位址、UDP 1194／TCP 443、VPN 子網路衝突檢查、整個區網／所有流量走 VPN、DNS；不自動連到外部網站查公網 IP，按了才查）→ 安全等級（預設「現代」：TLS 1.2 以上、tls-crypt、AES-256-GCM 與 ChaCha20-Poly1305、EC 憑證、無 DH、撤銷清單、降權；預覽設定檔每一行有白話說明；可選替 CA 私鑰加密碼）→ 建立 PKI 與設定（easy-rsa，/etc/openvpn/pomelo-pki 0700）→ 防火牆與轉送（firewalld、ufw、純 iptables 三種做法，只動自己的鏈或標記區塊，改前備份、可還原、冪等）→ 啟動並檢查 → 第一個客戶端（內嵌式 .ovpn：存檔 0600、QR 碼先警告並 60 秒自動隱藏、匯入這台電腦的 VPN 客戶端）→ 完成頁。
+  · 管理：客戶端清單（已連線、虛擬 IP、流量；右鍵重新匯出、QR、續期、撤銷並立即中斷連線、刪除）、憑證健檢（30 天內橘色）、「為什麼連不上」診斷、日誌、服務操作、備份 PKI（gpg 加密）、解除安裝（保留 PKI／全部刪除，後者要輸入名稱確認）。
+  · Tailscale：登入精靈（登入網址與 QR、auth key 只經管道、進階填自架的 Headscale 登入伺服器）、選項（子網路由、出口節點、SSH、DNS，附風險說明；需要時一鍵開啟 IP 轉送）、管理頁（對等裝置直連／中繼、切換出口節點、診斷、netcheck、日誌）。Tailscale 官方軟體庫（第三方）要勾選同意，HTTPS 下載金鑰並核對指紋才新增；介面如實說明 Tailscale 依賴它的雲端協調服務（免費方案、需登入帳號），不使用雲端 API、不存 API 金鑰。
+  · 安全：特權動作只走 pomelo-vpn-admin（polkit、白名單子命令、結構化參數、設定檔由它自己產生，不接受任意設定文字）；所有輸入白名單驗證（單元測試含 2.4 萬筆模糊測試）；CA 密碼只經標準輸入；唯讀的 pomelo-vpn-status 只印連線狀態檔；management 通訊端只允許 root。
+  · 整合：網路設定的 VPN 區加「建立 VPN 伺服器…」；主機醫生的安全體檢多一項「VPN 伺服器」（憑證到期、服務、防火牆、CA 私鑰權限、安全等級；沒有 VPN 就不顯示）；防火牆管理員把 POMELO_VPN_* 鏈顯示為「由 pomelo-vpn 管理」；小幫手快速通道：「VPN 有幾個人連線」「建立 VPN」「設定 tailscale」「新增 VPN 使用者」。命令列 `pomelo-vpn --status|--json|--clients|--add-client|--revoke|--diagnose`。
+  · 尚未完成：圖形化離線包匯入、以真實 Tailscale 帳號或 Headscale 的端對端登入、VPN 的 IPv6 子網路。
+- 新程式「備份」（pomelo-backup，2026-11-18，見 docs/備份.md）：主機醫生能檢查系統有沒有備份；沒有的話，三步設定備份資料夾、頻率與保留，設定好由 systemd 使用者定時器自動執行（不常駐）。
+  · 備份引擎：rsync 硬連結快照（`<日期>/` 完整資料夾，用檔案管理員就能瀏覽）、先寫 .partial 成功後原子改名、封存模式（tar＋zstd／gzip，可用 gpg 密碼加密；FAT／exFAT 自動改用）；保留策略（每小時／日／週／月，預設 7 天、4 週、6 個月，只刪「帶標記檔」的快照、不跟隨符號連結、至少留最新一份）；防呆（目的地不在來源內、空間不足先停止、外接碟沒接上略過、同時只一個備份、被中斷自動清理）；驗證（快速抽樣 SHA-256、完整 rsync --checksum）；還原（預設不覆蓋，同名三選一，覆蓋前先移到「還原前備份」）；誤刪救援（檔案管理員右鍵「從備份還原此檔案的舊版本…」）。
+  · 主機醫生：體檢「開機與系統穩定」多一項「備份」，總覽多一張備份卡（綠／橘／紅／灰，建議在結論下方）；偵測 Timeshift、snapper、restic、borg、rsnapshot、Déjà Dup、Back In Time、Bacula／Bareos、systemd 定時器與 cron、ZFS／LVM 快照、外接硬碟上的備份庫；可「標為正常」（90 天後再問）；每日採樣順便叫 pomelo-backup --notify-check（太久沒備份通知，24 小時節流）。
+  · 小幫手快速通道：「有沒有備份」「上次備份是什麼時候」「幫我備份」「備份設定」「還原檔案」（一律走確認視窗）。命令列 `pomelo-backup --status|--list|--run|--restore|--verify|--prune…`，結束碼 0／1／2／3／4。
+  · 尚未支援：SSH 目的地（輸入驗證已備妥）、外接硬碟插上時由 udev 觸發（目前每 30 分鐘偵測一次）。
+
+- 顯卡監視（新程式 pomelo-gpu，2026-11-18，見 docs/顯卡監視.md）：唯讀的顯卡圖形管理工具——有幾張顯卡、型號與規格、GPU 使用率、顯示記憶體用了多少（圓環與長條，超過 90% 轉橘）、溫度、風扇、功耗（W／上限）、時脈、PCIe 世代與寬度、效能狀態、降頻原因；詳情頁有即時折線圖（最近 60 秒與最近 10 分鐘，可選指標、平均與最大、游標提示、暫停、匯出 CSV 與 PNG）。
+- NVIDIA 由使用者自己安裝驅動（驅動會附帶 nvidia-smi），我們只讀取與顯示：先試 NVML（執行時 dlopen libnvidia-ml.so.1，輕量），失敗或不存在就用 nvidia-smi（單一長駐子行程，欄位逐一降級，處理程序用 -q -x）；介面與 --summary 顯示資料來源，設定可強制只用其中一種。不隨附、不打包、不下載、不自動安裝 NVIDIA 專有驅動。AMD 與 Intel 讀 sysfs（fdinfo 彙總處理程序），虛擬顯示卡（virtio、QXL、VMware、Hyper-V）只列名稱與驅動。
+- 處理程序頁：PID、名稱、使用者、類型、顯示記憶體與佔比、指令行（--token、--password、金鑰、網址密碼遮成 ***）、所屬容器（docker、podman、k3s、containerd、cri-o）與 systemd 服務；右鍵可複製、結束（SIGTERM）、強制結束（要再確認；別人的處理程序要管理員驗證）、在活動監視器查看、查看容器；看不到全部處理程序時可用 pkexec 執行唯讀的 pomelo-gpu-admin（只輸出 PID、名稱、顯示記憶體）。
+- AI 模型頁：載入在顯示記憶體裡的模型（Ollama、llama-server［含小幫手的 UNIX socket 與一般 TCP］、vLLM 與 OpenAI 相容服務、由處理程序反推，標示可信度）與磁碟上已安裝的模型（Ollama、Hugging Face 快取、.gguf、LM Studio），粗估放不放得進目前的顯示記憶體；只查本機、逾時 1 秒、不掃描網路；預設唯讀，Ollama 的「卸載」要在設定開啟並確認。
+- 警示（溫度、顯示記憶體、降頻、風扇停轉、ECC、PCIe 降速、沒有驅動、nouveau、nvidia-smi 無法通訊）有「為什麼重要」與「建議做法」，門檻可調；可選桌面通知與預設關閉的 systemd 定時器（pomelo-gpu-check.timer）。沒有驅動或 nvidia-smi 無法通訊時有說明頁（各發行版的官方安裝方式與檢查指令，只列文字）。
+- 命令列：pomelo-gpu --summary／--json／--list／--gpu N／--processes／--models／--watch／--csv；結束碼 0 正常、1 有警示、2 有問題、3 沒有顯卡。取樣只在視窗可見時進行，隱藏就停止（含結束 nvidia-smi 子行程）。
+- 主機醫生診斷加入顯卡：顯示記憶體快滿、GPU 滿載、因過熱或功耗上限降速會列為「電腦變慢」的可能原因並附建議（沒有 NVIDIA 顯示卡或沒有 pomelo-gpu 時完全不出現）；活動監視器新增「顯卡」分頁入口；小幫手快速通道：「顯卡使用多少」「有幾張顯卡」「顯示記憶體還剩多少」「顯卡溫度多少」「現在載入了哪些模型」「GPU 在跑什麼」。
+- 介面支援 13 種語言。
+
+0.41 更新（2026-11-14）：
+- 支援的發行版調整（2026-11-14）：Ubuntu 22.04 不再支援（不再建置、不再提供安裝包）；新增 Fedora 45；Rocky Linux 9.6 改為 9.8。目前支援：Ubuntu 24.04（amd64）、Ubuntu 26.04（amd64、arm64）、Debian 13、Fedora 44、Fedora 45、Rocky Linux 9.8（AlmaLinux 9、RHEL 9 同系列）。
+- Fedora 45 相容修正（2026-11-14）：pomelo-pdf 的 pdf-sign.c（PDF 數位簽章驗證）改用 OpenSSL 3 與 4 都相容的存取函式（ASN1_STRING_get0_data、ASN1_STRING_length、ASN1_TYPE_get）——OpenSSL 4 起 ASN1_STRING、ASN1_TYPE 變成不透明型別，不能再直接讀結構欄位。
+- 泰文介面字型（2026-11-14）：以前泰文介面全是方塊——Pomelo 的介面字型固定是 Noto Sans CJK TC，沒有泰文字形，而 cairo 的文字 API（cairo_show_text）只用一個字型、不會逐字換字型，fontconfig 的後援在這裡不會發生。libpomelo 新增 textfb.c：pomelo.h 把 cairo_show_text／cairo_text_extents 轉過去，字串含泰文（U+0E00–U+0E7F）才把泰文段落換成自由授權的泰文字型（Noto Sans Thai，其次 Noto Sans Thai UI、Loma、Garuda、Waree、Kinnari…；用 cairo 實測有泰文字形的第一個，只測一次），畫完換回原字型，字級、粗體沿用；不含泰文的字串走原本路徑。套件 pomelo-desktop 建議安裝泰文字型（Debian／Ubuntu：fonts-tlwg-loma-ttf 約 0.4 MB，或 fonts-noto-core；Fedora／Rocky：google-noto-sans-thai-fonts，OFL，Fedora 1.3 MB、Rocky 0.3 MB）。限制：cairo 的 toy API 沒有 OpenType 排版，聲調符號疊放略不如完整排版。
+- 多語系（2026-11-14）：螢幕保護程式、網路探索、防火牆管理員、封包分析器、入侵檢查與日誌的所有介面文字，補齊 13 種語言的翻譯（英、德、法、西、義、巴葡、日、韓、簡中、俄、泰、越、印尼）；新功能的譯文是機器翻譯，尚待母語者校對。翻譯檢查（libpomelo/i18n/check.py）涵蓋所有新程式與 pomelo-doctor/intrusion，13 種語言缺譯 0、格式符號不符 0；順手清掉各語言檔裡重複的鍵。
+- 主機醫生新增「入侵檢查」「日誌」「處置」三個分頁（2026-11-14；見 docs/入侵檢查與日誌.md）：
+  ① 入侵檢查（`pomelo-doctor --intrusion [--deep] [--json] [--brief]`，唯讀）：系統檔案完整性（Debian／Ubuntu 讀 dpkg 的 md5sums 逐檔比對、Fedora／Rocky 用 rpm -V；預設只驗重點二進位，--deep 才全掃，結果快取）、
+  木馬常用的持久化位置（cron、systemd 單元與定時器、rc.local、profile.d、shell 啟動檔、ld.so.preload 與 LD_PRELOAD、PAM、sudoers、authorized_keys、新增帳號、sshd 設定、桌面自動啟動、核心模組載入設定）、
+  行程異常（已刪除卻還在跑、從 /tmp 執行、名稱偽裝、反向 shell、挖礦與殭屍網路名稱、隱藏行程）、網路連線異常（對外連線摘要、礦池埠、Tor 埠、不明的高埠監聽）、核心與模組（不在清單的模組、被藏起來的模組、tainted 白話解釋）、
+  檔案系統跡象（混淆名稱、近期被改的設定檔、新增的 setuid、任何人可寫的系統位置、/dev 裡的一般檔案、網頁木馬特徵）。每一項有嚴重度、白話原因、證據、建議、可信度與誤報說明，可「標為正常」並記住；
+  結論只有三種：沒有發現已知的入侵跡象／發現 N 項可疑跡象／發現強烈的入侵跡象，永遠附「本機檢查無法排除高明的入侵」；結束碼 0／1／2；結果與跡象數量記進歷史；每週一次輕量檢查（systemd 使用者定時器，高度可疑才通知，24 小時內同一件一次）。
+  ② 日誌檢視器（`pomelo-doctor --logs`）：journald、auth.log、secure、syslog、messages、kern.log、dpkg／dnf、ufw、cron、dmesg、wtmp／btmp（自己解析二進位）；串流建立索引、虛擬捲動（100 萬行索引約 0.7 秒、搜尋 0.1 秒、約 26 MB）、
+  時間／等級／服務／安全事件類別／全文（多個關鍵字、排除字、片語；不用正規表示式）篩選，14 類安全事件標示（失敗與成功登入、sudo、帳號與密碼變更、SSH 金鑰、服務啟停、核心與 OOM、模組、防火牆、套件、排程、sshd 異常、segfault），
+  journalctl 一律帶 -r -n 行數上限與 -t 過濾，--brief 總時間上限 10 秒（journal 3.6 GB：5 分鐘以上 → 9.6 秒），GUI 背景建立索引、可按「載入較早的日誌」（journalctl 上限）；右鍵選單、匯出（可去識別化）、即時追蹤（inotify／journalctl -f，只在開啟且頁面可見時）；事件時間線：標記為證據、自動找關聯事件（同使用者、同來源 IP、同行程、前後 10 分鐘）、可縮放平移。
+  ③ 被攻擊時的處置：六步驟引導（別關機別刪檔、暫時斷網、建立證據包、換密碼與金鑰、乾淨重裝、通報），證據包是 .tar.gz 加整包 SHA-256（可用 gpg 加密），不含密碼雜湊與私鑰；會改動系統的動作一律先問。
+  管理員那一份是獨立的 pomelo-doctor-intr-admin（只讀，操作白名單）。小幫手新增快速通道「有沒有被入侵」「電腦有沒有木馬」「檢查有沒有挖礦程式」「最近有誰登入」「看一下 SSH 登入紀錄」。報告匯出加入入侵檢查結果與日誌摘要。
+- 新程式「封包分析器」（pomelo-packets，2026-11-14，見 docs/封包分析器.md）：類似 Wireshark 的封包擷取與分析，全部自己實作（pcap／pcapng 讀寫、協定解析、顯示過濾、BPF 編譯器），不用 libpcap／Wireshark：
+  擷取（特權輔助程式 pomelo-packets-helper：不是 setuid、固定子命令、開好 socket 就降權；TPACKET_V3 環形緩衝，實驗室 veth 6.8 Gbit/s 合成流量 0 丟包）、
+  封包列表（虛擬捲動、顏色規則、排序、書籤、註解）＋逐層詳情＋十六進位高亮、顯示過濾（Wireshark 風格子集，即時驗證與自動完成）、追蹤 TCP／UDP 串流（重組重傳／亂序／重疊／缺口）、
+  對話／端點／協定階層／I/O 圖、專家資訊（重傳、重複 ACK、零視窗、RST、SYN 無回應、ARP 位址重複…）；
+  RTP／VoIP：SIP／SDP 登記與啟發式辨識串流、遺失／亂序／重複／抖動（RFC 3550）／delta／MOS 估計（E-model 簡化版）與燈號、SIP 呼叫流程圖與狀態、NAT／單向語音／編碼不匹配等問題建議、RTCP 對照；
+  法律與隱私護欄：第一次使用須知（勾選同意）、預設只統計、還原成可聽音訊（G.711、L16、Opus（dlopen libopus）、DTMF）或影像（H.264 Annex B、VP8 IVF）需逐次授權並寫入本機稽核紀錄、不自動儲存、SRTP／TLS 不破解、去識別化。
+  與網路探索、主機醫生互相導覽（`pomelo-packets --prepare …` 預填、不會自動擷取；右鍵「在網路探索中查看這台設備」）。小幫手快速通道：「抓網路封包」「分析這個 pcap」「看看 VoIP 通話品質」。13 種語言。
+- 新程式「網路探索」（pomelo-netscan，2026-11-14，見 docs/網路探索.md）：
+  · 盤點你有權管理的網路：ARP／ICMP／TCP 探索、埠與服務辨識（SSH、HTTP(S)、TLS 憑證、SMB2、IPP、RTSP、banner）、mDNS／SSDP／NetBIOS、SNMP v1／v2c／v3（只用你自己提供的團體字串或 v3 帳密，從檔案或環境變數讀，不猜、不送 SET）、被動 LLDP／CDP；推斷作業系統（資料驅動規則表，標可信度，證據不足就說無法判斷）、設備類別與型號、網路上的相對位置。
+  · SNMPv3（USM）：noAuthNoPriv／authNoPriv／authPriv；認證 MD5（標示不安全）、SHA-1、SHA-224／256／384／512（RFC 7860）；加密 AES-128／192／256（DES 不支援）。自己實作密碼學並用 RFC／NIST 標準測試向量逐項驗證，另以假 agent 與真正的 net-snmp snmpd 交叉驗證。
+  · 已公開 CVE 的保守比對：只依服務 banner 的明確版本對照手工整理的表（可由使用者補充），一律標「可能受影響（依 banner 版本推斷，未驗證）」，附信心與誤判說明，發行版標記降低信心，可按「不再提示」。
+  · AP 無線用戶端清單（SNMP；目前只支援 MikroTik 的註冊表，其他廠商明說不支援）與橋接表的無線埠：用戶端歸到所屬 AP 下，拓樸圖畫出已確認的實線。
+  · 衝突偵測與解決輔助（IP、MAC、主機名稱、DHCP／rogue DHCP、閘道、網段、VLAN）、異常設備、埠政策（範圍＋規則＋例外、範本）、被動封包異常警示、整體網路安全評估（透明的評分公式）。
+  · 拓樸圖：階層與位置視圖、拖曳節點（位置會記住，可重新排列）、框選後批次標註位置／標為已知／隱藏／匯出選取、把設備拖到位置方塊上即標註位置、鍵盤操作（方向鍵、＋／－、F、/、Esc）；時間滑桿檢視歷史快照；與上一份掃描比較（新增綠光暈、消失灰色虛線、連線變更橘線）；PNG／SVG／PDF／JSON 匯出（可用比較模式）。
+  · 與封包分析器（pomelo-packets）互相關聯：`--show-device <IP|MAC>`、`--show-findings <conflicts|anomalies|packets|policy|assess>`；PATH 有 pomelo-packets 才顯示「擷取這台的封包…」「在封包分析器中查看」，只會開啟封包分析器並帶入過濾條件，需要使用者在該視窗內自己確認後才開始擷取。
+  · 介面支援 13 種語言（其餘 12 種與英文皆通過格式驗證）。
+  · 邊界：只掃私有網段、最大 /22；不猜密碼、不利用漏洞、不欺騙、不改動任何設備；特權輔助程式只做 ARP／LLDP／DHCP 探測與被動收包，開好 socket 就降權。結果只存本機。
+  · 小幫手快速通道：「這個網路有哪些裝置」「找印表機」「192.168.1.20 是什麼設備」「網路有沒有 IP 衝突」「確認整個網路安全」…（掃描前會先跳確認視窗）。
+- 新程式「防火牆管理員」（pomelo-firewall，2026-11-14，見 docs/防火牆.md）：
+  · 定位：iptables 的好用管理介面，就地讀取、就地寫回系統現有規則；不取代、不接管 ufw／firewalld／iptables／Docker。
+  · 規則頁：所有表與鏈（IPv4／IPv6）、白話說明、命中計數、可展開看等價指令；新增／編輯／刪除／停用／拖曳重排；
+    看不懂的規則（-m string、MASQUERADE…）原樣保留、唯讀；ufw／firewalld／Docker／k3s／fail2ban 管理的鏈預設唯讀（DOCKER-USER 可編輯）。
+  · 安全網：寫回前自動備份、差異預覽、連線預檢、30 秒內沒按「保留」自動還原（systemd 暫時單元或脫離的子行程，GUI 當掉也會還原）；
+    寫回前雜湊比對，規則在編輯期間被別人改動就拒絕。
+  · 風險建議：高風險埠對全網開放、SSH 無限制、預設允許、被遮蔽或矛盾的規則等，在表單、差異預覽與規則詳情下方先給建議（可「不再提示」）。
+  · 攻擊防護（POMELO_* 鏈＋ipset，核心內執行、不常駐）：SYN 洪水、並行連線數、畸形封包、反欺騙、自動封鎖（重犯加重）、封鎖與白名單。
+  · 匯入匯出 iptables-save 與 JSON；基本規則範本；新手精靈；命令列 pomelo-firewall --help。
+- 新程式「螢幕保護程式」（pomelo-screensaver，2026-11-14，見 docs/螢幕保護程式.md）：
+  · 閒置順序改成「螢幕保護程式 → 鎖定 → 關螢幕 → 休眠」。pomelo-power 沿用原本「睡到下一個門檻」的排程啟動它（沒有新增計時器或輪詢），
+    保護程式是啟動才存在、結束就消失的行程；鎖定時間到了而它正在跑，就交給它（SIGUSR1）：先蓋住、啟動鎖定畫面、鎖好才放手，桌面不會閃現；關螢幕或休眠前直接請它結束。
+  · 八種畫面：時鐘（防燒屏漂移，12／24 小時、秒、農曆、顏色）、照片幻燈片（JPEG／PNG／GIF／WebP，淡入淡出、緩慢推近，壞圖自動跳過、沒有圖改用內建桌布）、
+    小柚（直接連結小幫手的圖資）、流動色彩、星空、氣泡、文字訊息、純黑，另有「隨機」。全部自己繪製（cairo／pixman，不用 GPU、沒有新增套件相依）。
+  · 每個螢幕各畫一個；任何按鍵、點擊、滾輪或滑鼠移動超過容許量（預設 12 像素）立即結束；需要密碼時先交給鎖定畫面；當掉時也會先去鎖定。
+  · 設定頁（系統設定「螢幕保護程式」或 `pomelo-screensaver --settings`）：縮圖格、全螢幕預覽、各種畫面的選項、喚醒要求密碼、電池時不啟動／改純黑、播放影片或全螢幕時不啟動（MPRIS／PulseAudio＋全螢幕視窗）、
+    滑鼠抖動容許量、省電模式；與「電源與鎖定」頁共用同一套時間表，互相矛盾（例如關螢幕早於保護程式）會提示。
+  · 命令列：`--preview`、`--kind`、`--list`、`--settings`、`--lock-now`。小幫手快速通道：「啟動螢幕保護程式」「螢幕保護程式改成照片」「10 分鐘後啟動螢幕保護」。
+  · libpomelo：新增 pmwl_hide_cursor（保護程式期間隱藏游標）。
+- 新程式「主機醫生」（pomelo-doctor，2026-11-14，見 docs/主機醫生.md）：**原本的「健康檢查」併進主機醫生**（系統設定的健康檢查頁移除，改成「主機醫生（健康檢查）」入口；網路設定的「檢查網路」、活動監視器的「找出原因」、電源頁的「檢查電池」、`pomelo-system --check`／`--page health`、小幫手的 health_check 都轉到主機醫生；病毒掃描與套件清單（SBOM／CVE）的完整頁面也整段搬進主機醫生，`pomelo-system --page virus／sbom／--sbom` 轉給它；檢查引擎仍是 libpomelo 的 pomelo-check.h、sbom.c，沒有複製），並加三件事。
+  ① 體檢歷史與趨勢：每天採樣一次（systemd 使用者定時器＋登入時補採，採樣程式讀幾個數字就結束、不常駐）、每週完整體檢；
+  歷史存本機文字檔（CRC 校驗、原子修剪、損壞自動重建，預設留 180 天）；趨勢頁有磁碟「預計幾天後寫滿」（直線迴歸＋95% 信賴範圍，資料不足或波動大就說不預測）、
+  記憶體、開機耗時、體檢分數，異常點標記並列出前後的套件／核心／服務變更；可存 PNG、匯出 HTML／PDF 報告（可去識別化）。
+  ② 為什麼變慢：規則表診斷（處理器、記憶體、交換、I/O、磁碟、溫度、背景掃描與更新、服務、卡住的連線、開機最慢的服務），跟歷史比，依可信度排序，附證據與要先確認的修正。
+  ③ 安全總覽：連線與監聽埠對應到行程、登入紀錄（Ubuntu／Debian／Fedora／Rocky 格式）與暴力破解偵測、防火牆狀態與開關、SSH／權限／sudoers／帳號／setuid 風險，併入 CVE 與病毒掃描，算風險分數並記進歷史。
+  嚴重問題（磁碟 < 5%、SSH 暴力破解、失敗登入暴增、重要服務失敗）由採樣程式發通知（24 小時內同一件事最多一次，可關閉）。
+  小幫手新增 `diagnose_slowness`、`host_history` 與快速通道（「電腦好慢」「開機變慢了」「磁碟還夠用多久」「這個月體檢狀況如何」）。
+- 效能修正（2026-11-14，見 docs/效能預算.md）：
+  ① 終端機閒置時每秒重畫 120 次以上（XCopyArea 的 NoExpose 事件觸發下一次重畫），合成器跟著吃 2.5% CPU；截圖／錄影工具列同樣空轉約 40% CPU。
+  libpomelo、終端機、小柚的 GC 關掉 graphics_exposures，閒置回到 0 次喚醒。
+  ② 外觀（pomelo-theme）開啟從約 1.5 秒降到 0.03 秒：桌布縮圖改存快取（~/.cache/pomelo/wpthumb/），沒有快取的由 tick 一次解一張。
+  ③ 行事曆：載入 5000 筆行程 80 → 30 ms（UTC 時間不再為每筆重設時區、時區檔存在與否有快取）；背景提醒 daemon 改成睡到下一個提醒時間
+  （timerfd＋inotify，不再每 30 秒醒來、展開全部行程並 fsync 狀態檔）；登入時改在面板出現之後才啟動。
+  ④ pomelo-session 等面板／環境變數的輪詢從 100 ms 改成 10 ms。網路設定：VPN 種類查過就記著，每 5 秒刷新少開幾個 nmcli。
+  ⑤ 第二輪（2026-11-14）：系統設定「登入畫面」頁開啟 1.2 秒 → 0.02 秒（桌布縮圖共用快取，libpomelo 新增 `pm_thumb_cached`／`pm_thumb_load`）；
+  網路視窗開啟 93 → 24 ms、不再每 5 秒同步跑 4～5 個 nmcli 卡 100 ms（背景行程＋`nmcli monitor` 事件＋上次狀態的快取）；
+  啟動器開啟 CPU 90～120 → 40 ms、PSS 24.8 → 14.7 MB（apps 掃描快取 `~/.cache/pomelo/apps.bin`、xkb 鍵盤配置延後編譯、開啟時不重畫兩次、漸層背景直接畫小圖、閒置放掉多的 shm 緩衝）；
+  面板 PSS 17.3 → 9.8 MB；系統設定閒置喚醒 15 → 4 次/秒（新增 `pm_ui_tick_ms`）；儲存空間閒置 270 → 2 次/秒（核心 uevent 事件驅動，不再每 2 秒同步 `udisksctl dump`）；
+  看圖程式讀不出來的圖每毫秒空轉（938 次/秒）修好；小幫手音量滑桿、播放器音量條拖曳中不再每次寫設定檔。libpomelo 只新增函式（`pm_thumb_cached`、`pm_thumb_load`、`pm_ui_tick_ms`）。
+- 應用程式選單可以拖拉、按右鍵（2026-11-14）：
+  ① 系統設定「應用程式選單」改成左邊分類（全部、六大分類、已隱藏）＋右邊程式（清單或圖示）＋底下 Dock 區塊的自繪畫面（X11 與原生 Wayland 同一份程式）。
+  拖程式到分類＝改分類（`launcher.cat.<ID>`）、同分類內拖＝排順序（新設定 `launcher.order.<分類>`，啟動器照這個順序）、拖到 Dock 區塊＝保留在 Dock、區塊內拖＝換位置、拖出去＝移除（`dock.apps`，Dock 即時更新）；
+  拖曳有跟手圖示、目標高亮、插入線與動作小標籤，Esc 取消，拖到清單邊緣自動捲動。右鍵選單（程式、空白處、分類、Dock 區塊）：編輯、重新命名、複製成自訂程式、Dock、隱藏、移到分類、還原、刪除（只有自己加的，會確認並清掉 Dock／分類／順序）、全部還原、依名稱排序…；
+  鍵盤：方向鍵、Enter、F2、Delete、Ctrl+N。新增／編輯：寫檔改成只換改過的欄位（沒改的各語言名稱與多個分類原樣保留）、名稱與指令不能空白、拒絕換行與控制字元、新增的標記 `X-Pomelo-Custom=true`、新增「啟動器的分頁」欄；沒有自訂分類（只有六大分類）。
+  ② 啟動器：圖示可拖到上方分類頁籤改分類、在分類頁籤裡拖曳排順序、拖到拖曳時才出現的 Dock 列保留在 Dock（沒有拖動、放開才打開程式）；右鍵補上「從選單隱藏」「刪除…」（只有自己加的，由系統設定確認）、空白處右鍵「新增程式或指令…」「編輯應用程式選單…」。
+  ③ Dock：固定的程式可左右拖曳重排，拖出 Dock 外放開就移除（圖示角落出現紅叉）；X11 與原生 Wayland 兩份都有（點一下仍然是切到視窗，放開沒動才算點擊）。
+  ④ libpomelo：新增 `pm_apps_in_category`、`pm_app_order_set`；設定檔單行上限從 1 KB 放寬到 16 KB（順序清單可能很長，原本會被截斷）；X11 的彈出選單比照原生 Wayland，
+  打開選單的那一下放開（選單被擠上來蓋住游標時）不會誤選到某一項；pomelo-system 新增 `--new-app`、`--hide-app`、`--unhide-app`、`--delete-app`。13 種語言補齊（55 句）。
+
+0.40 更新（2026-11-07）：
+- 新程式「行事曆」（pomelo-calendar，2026-11-13）：月、週、日、議程四種檢視，迷你月曆側欄，每週從週日或週一、顯示週數；台灣國定假日（2017～2027 用行政院人事行政總處公告的辦公日曆表，
+  政府資料開放授權條款－第1版，其他年份推算）、補假、補班、農曆（1901～2100，天文演算法，非查表）與二十四節氣，可在設定關掉；深色模式、X11 與原生 Wayland 都能跑。
+  ① 行程：標題、地點、備註、全天、開始／結束、時區（預設系統時區；浮動時間正確處理）、重複（每日／週／月／年、間隔、指定星期、每月幾號或第幾個星期幾、結束於日期或次數、刪除單次、只改單次）、多個提醒、行事曆分類與顏色、參與者備註；
+  拖曳建立、拖曳移動、拖下緣調長度，雙擊編輯，右鍵選單（編輯、複製、建立副本、刪除、更換行事曆顏色、在此新增行程、貼上），搜尋（Ctrl+F）、快速鍵（N、T、方向鍵、Ctrl+1～4、Delete…）、匯出本月 PDF。
+  ② 儲存：標準 iCalendar（.ics），每個行事曆一個檔放在 `~/.local/share/pomelo/calendar/`，原子寫入（暫存＋fsync＋rename）、留 .bak、檔案鎖、損壞時自動用備份；匯入／匯出 .ics
+  （VEVENT、RRULE、EXDATE、RECURRENCE-ID、VALARM、VTIMEZONE，含 Windows 時區名稱；5000 筆的檔案約 0.1 秒）。自己寫解析器與 RRULE 展開，不新增函式庫相依。
+  ③ 背景提醒：`pomelo-calendar --daemon`（pomelo-session 登入時啟動）經 D-Bus 通知，點通知開行事曆到那個行程；狀態檔記錄已提醒的項目，休眠或關機之後補提醒、重啟不重複。
+  ④ CalDAV（選用）：curl 子行程（TLS 一律驗證、不用 -k）、密碼只走標準輸入、帳號檔 0600；CTag＋ETag 增量同步、本機與伺服器雙向、衝突以伺服器為準並告知；用本機 Radicale 端對端測過（Nextcloud 等沒有測過）。
+  ⑤ 整合：選單列點時間彈出迷你月曆與當天行程（X11 與原生 Wayland）；小幫手快速通道「明天下午三點開會」「我今天有什麼行程」「下週有什麼事」；`.ics` 預設用行事曆開（text/calendar）；
+  命令列 `--add`、`--list --json`、`--today`、`--import`、`--export`、`--sync`（見 docs/行事曆.md）。
+  ⑥ 測試：核心單元測試 186 項（六個發行版容器各編譯並通過）、RRULE 與 python-dateutil 逐次比對 1.1 萬條隨機規則 0 筆不同、農曆與節氣與獨立實作逐日比對、小幫手 qtest 全過；libpomelo 只新增 `pm_ui_wheel_steps`、`pm_ui_rclick_at`、`pm_ui_close` 三個介面。
+- 小幫手「線上大腦」（選用，預設關閉；2026-11-13）：使用者在小幫手設定的「大腦」區選「線上」、看過說明並同意、填自己的 API 金鑰後，快速通道處理不了的問題才送到線上服務，
+  能多做查資料、讀網頁、讀文字檔等；預設與常用指令仍一律只在本機。
+  ① 服務：OpenAI 相容（網址可改，涵蓋 OpenAI、OpenRouter、Groq、DeepSeek、Together、Ollama、LM Studio、vLLM）、Claude（Anthropic，`/v1/messages`，工具格式自動轉換，預設 claude-sonnet-5-5，下拉有 haiku／opus／fable）、
+  Google Gemini（OpenAI 相容端點）；串流（SSE，兩種格式）、可取消（對話視窗按鈕、桌面小柚按 Esc）、測試連線（401／403／404／429／5xx／連不上／逾時／憑證不被信任都有白話訊息）、
+  連不上網路時自動退回本機（可關）。
+  ② 隱私與安全：切到線上前有說明視窗，同意才啟用（說明改版會重問）；金鑰存 `~/.config/pomelo/assistant-keys/<服務>`（0700／0600），不進 settings.conf；連線用 curl 子行程，網址、標頭、請求內容全走 stdin 的 `-K -`
+  （命令列只有 `curl -q -K -`，ps 看不到；不寫日誌、請求內容不落地），一律驗證憑證、不跟隨轉址、http 只准本機與內網；傳出去的只有對話與工具結果、附註只有時間，不附螢幕截圖、剪貼簿、整個檔案；
+  確認視窗由工具自己跳（模型說「已同意」也一樣要確認）；工具結果一律標示「不可信的資料」；每次回答最多 1024 token、工具迴圈最多 8 輪、請求超過 80 KB 少帶前面的對話（Rocky 9 的 curl 7.76 設定檔超過約 110 KB 會被截斷）。
+  ③ 新工具（線上）：`system_info`、`list_dir`、`read_text_file`（線上每次確認）、`search_web`（DuckDuckGo HTML）、`fetch_url`（陌生網站要確認、擋本機與內網）、`set_wallpaper`（確認）、
+  `run_command`（預設關閉，要在設定勾選，每次確認、顯示完整指令、最多 30 秒），並把 `install_package`／`remove_package`／`power_action`／`take_screenshot` 也提供給線上大腦。
+  ④ 其他：設定頁一打開不再捲到最下面；新增 `make online-test`（`otest.sh`＋`fake-online.py` 本機假服務，28 項端對端測試，不連真服務）；`--chat-test`、`--online-test`；13 種語言補齊（102 句）；
+  不新增相依（curl、ca-certificates 本來就是 pomelo-assistant 的相依）。**沒有用真正的線上服務測過**（沒有真的金鑰），請第一次使用時先按「測試連線」。
+  測試：快速通道 401 句＋dnf 10 句全數通過；Xvfb 截圖（shots/）與 pomelo-compositor 的 XWayland 各測過設定頁、同意說明、確認視窗、對話畫面與桌面小柚的取消。
+- 多桌面（虛擬桌面，2026-11-13）：預設 4 個桌面、可設 2～10 個（系統設定「多桌面」，pm_conf：workspace.count／animation／move_follow／alt_tab_all／new_window／gesture／dock_all）。
+  ① 核心（pomelo-compositor/workspace.c）：每個一般視窗屬於一個桌面，切換時只顯示那個桌面的視窗（X 與原生 Wayland 視窗一視同仁）；新視窗落在目前桌面、對話框跟主視窗；
+  最大化／全螢幕／位置各桌面各自保留；焦點用「最近使用」順序，每個桌面記得上次的視窗，「在所有桌面顯示」的視窗不搶桌面自己的焦點；切換動畫左右滑 220 ms（ease-out），可關。
+  ② 操作：Ctrl+Alt+←／→ 前後切、Super+1～9 直接跳、Super+Alt+1～9 移視窗（Super+Shift+3／4／5 是截圖，所以不用 Shift）、Ctrl+Alt+Shift+←／→ 移到前後桌面、Ctrl+Alt+↑／Super+Tab／Super+E 桌面總覽；
+  觸控板三指／四指橫滑（跟手、超過 28% 才換、不夠遠彈回；到頭有橡皮筋），三指上滑開總覽；標題列右鍵（compositor 自己畫的選單）：移到桌面 1／2／3…（目前的打勾）、移到新桌面、在所有桌面顯示、關閉視窗。
+  ③ 桌面總覽：取代原本的視窗總覽，每個桌面一張小桌面卡片，視窗是縮小的即時畫面（wlr_scene 縮放，不是靜態圖），可點、可拖到別的桌面、「新增桌面」、右鍵關閉空的桌面／移到桌面，方向鍵、數字鍵、Esc；面板與 Dock 留在總覽上面。
+  ④ 面板：選單列中間桌面指示（圓點＋總覽按鈕，點擊、滾輪、右鍵選單）；Dock 預設只列目前桌面的視窗（設定可列全部，點別桌面的程式會切過去）；Dock 右鍵加「移到桌面 N」「在所有桌面顯示」；
+  桌寵、桌布、面板、Dock、通知（layer-shell 與 dock 類視窗）在所有桌面都在，鎖定畫面不受影響。
+  ⑤ 協定：新的自訂 Wayland 協定 pomelo_workspace_v1（狀態、每個視窗的桌面、切換／移動／sticky／新增／關閉／總覽；libpomelo 加 pmwl_workspace_*、PmwToplevel.workspace）；
+  XWayland 與原生視窗替身寫 EWMH：_NET_NUMBER_OF_DESKTOPS／_NET_CURRENT_DESKTOP／_NET_WM_DESKTOP（0xFFFFFFFF＝所有）／_NET_DESKTOP_NAMES／_NET_DESKTOP_VIEWPORT／_NET_DESKTOP_GEOMETRY，
+  也收 _NET_CURRENT_DESKTOP、_NET_WM_DESKTOP、_NET_NUMBER_OF_DESKTOPS 的 client message（wmctrl、xdotool 有效）；_POMELO_WL_STACK（截圖點選視窗）只列目前桌面的視窗。
+  ⑥ 新程式 pomelo-msg（隨 pomelo-compositor 安裝）：pomelo-msg workspace goto N／next／prev／move N／stick／add／remove N／current／count、pomelo-msg overview。
+  ⑦ 小幫手快速通道：「切到第二個桌面」「把這個視窗移到桌面三」「現在在第幾個桌面」「下一個桌面」「顯示所有桌面」「新增桌面」「在所有桌面顯示」（quick-cases.tsv 加 27 句，qtest 全 401 句通過）。
+  ⑧ 設定：系統設定新增「多桌面」頁（pomelo-theme --page workspace）；設定檔由 compositor 用 inotify 監看，登入後改讀該使用者的設定。13 種語言補齊（22 句）。
+  已知限制：多螢幕是「所有螢幕一起切換」；舊的 X11 視窗管理員 pomelo-wm 沒有多桌面；終端機的 Super+1～9 分頁快速鍵被切換桌面取代；
+  總覽的縮圖是縮放單一畫面，有 subsurface 的原生視窗（少數）縮圖可能缺塊；沒有在實體觸控板上測過手勢（headless 沒有 libinput 裝置，用同一組函式模擬測過）。
+- 壓縮管理員（pomelo-archive）整合進桌面（2026-11-13）：新套件 pomelo-archive，pomelo-desktop 相依它。
+  ① 程式：zip（jar apk epub）、7z、tar（gz bz2 xz zst lz lz4）、cpio、ar／deb／rpm、iso、squashfs、磁碟映像、單檔 gz bz2 xz zst lz 等的瀏覽、壓縮、解壓縮；
+  加密：ZIP 與 7z 用 AES-256（7z 可連檔名加密），tar 系列用 gpg；有進度、同名衝突、密碼視窗、拖放；命令列 --list --test --extract --create --add --formats。
+  安全：擋路徑穿越與符號連結逃逸、壓縮炸彈警告、磁碟空間先檢查、先解到暫存資料夾全部成功才搬。**不支援 RAR**（unRAR 授權限制，偵測到一律回「不支援的格式」，不交給 libarchive／7-Zip）。
+  ② 檔案管理員右鍵：壓縮檔有「解壓縮到這裡」「用壓縮管理員打開」，任何檔案或資料夾（可多選）有「壓縮…」；雙擊壓縮檔用壓縮管理員打開
+  （pomelo-session 的 pomelo-mimeapps.list 把約 45 種壓縮檔類型的預設設為 pomelo-archive.desktop，使用者的 mimeapps.list 優先；沒裝時自動略過）。
+  ③ 打包：libarchive 為編譯相依（Dockerfile.build／Dockerfile.rpm 加 libarchive-dev／libarchive-devel），執行期相依由 shlibs 自動算；
+  新增 packaging/suggests.txt（build-deb.sh、build-rpm.sh 產生 Suggests）：gnupg、squashfs-tools、7zip 為選配，7zip 只能「建議」——Ubuntu 24.04／26.04、Debian 13 的 7zip 套件含受 unRAR 限制的碼，
+  所以不自動安裝、光碟不預裝（光碟只裝 libarchive、squashfs-tools、gnupg）；Rocky 9 的 7zip 在 EPEL，要先裝 epel-release 並啟用 crb。
+  ④ 翻譯：13 種語言補齊（壓縮管理員、網路的 VPN 與企業 Wi-Fi、小柚確認視窗與 k3s 訊息、錄影右鍵選單、檔案管理員新增項目）。
+  ⑤ 說明書新增「壓縮管理員」一節（第 19 節，後面的章節順延）與 docs/壓縮管理員.md。
+  測試：在 Ubuntu 24.04 容器的 Xvfb 實際右鍵、點「解壓縮到這裡」（檔案真的解出）、「壓縮…」（開建立視窗）、「用壓縮管理員打開」、雙擊 .zip（開壓縮管理員）、雙擊 .txt（不開）；
+  在 pomelo-compositor 的 headless Wayland 也測了右鍵選單與解壓縮；壓縮管理員自己的 GUI 測試在 libpomelo 更新後重跑 18 項全過（截圖在 pomelo-files/shots/）。
+- 螢幕錄影實測與補強（2026-11-13）：在 Xvfb＋私有的 PipeWire（null sink、虛擬麥克風）實錄整個螢幕、選範圍、點選視窗、電腦聲音、麥克風、兩者混音、
+  不含聲音，用 ffprobe 與「閃光＋嗶聲」測試影片量音畫同步，75 秒不掉格（30.0 fps、格間隔 33.3 ms）、不漂移（前後段差 ≤ 2 ms；音畫差是固定的偏移、不是越錄越歪）、ffmpeg 記憶體穩定（約 355 MB 後持平）。
+  修正：① 各輸入的時間不再各自歸零（-copyts -start_at_zero），聲音補齊開頭，混音時兩路不會錯位（原本單一聲音來源每次錄影的音畫差會在 -78～-184 ms 之間亂跳，
+  修正後同樣的情境約落在 -80～-105 ms；兩路混音仍會有幾十 ms 的起伏，測試用的 ffplay 播放端本身也有抖動，無法完全分開）；② 每 2 秒一個關鍵格，mp4 先寫成分段式，ffmpeg 被殺掉或磁碟寫滿也留得住已錄的部分，停止時再封裝成一般的 mp4。
+  新增：① 錄單一視窗（工具列「錄製視窗」，點選視窗；錄的是點選當下的位置與大小，視窗移動不會跟）；
+  ② 格式與品質：MP4（H.264＋AAC）、WebM（VP9＋Opus）、MKV，品質小檔案／標準／高畫質（CRF 28／23／18、VP9 40／33／27，沒有 CRF 的編碼器用位元率），
+  選項改成獨立的設定視窗並記住（pm_conf）；沒有 libx264 時依序改用 libopenh264，再沒有就改存 WebM／MKV 並通知，不會直接失敗；
+  ③ 視訊鏡頭小畫面（電腦有 /dev/video* 才出現）：疊在四個角落之一、小／中／大，用 ffmpeg 的 v4l2 輸入；本機沒有鏡頭，以合成畫面測過濾鏡，沒用實體鏡頭測過；
+  ④ 暫停與繼續（分段錄、停止時用 concat 合併），選單列計時暫停時變橘色並停住；
+  ⑤ 計時上按右鍵：停止錄影、暫停（繼續）錄影、在「檔案」中顯示錄影的資料夾、放棄並刪除這段錄影（pomelo-screenshot --pause／--discard／--reveal）；
+  ⑥ 出錯有中文通知，且不留下 0 位元組或播不了的檔案：找不到麥克風／鏡頭（這一路略過、其他照錄）、錄影前磁碟空間不足、錄到一半磁碟寫滿（自動停止並保留已錄的）、
+  ffmpeg 意外結束（保留已錄的）、沒有 H.264（改存 WebM 並說明）。
+  ffmpeg 仍由使用者自己另外安裝（不放進相依、不預先裝）；在容器實查各發行版的 ffmpeg 套件與編碼器見使用手冊「截圖與錄影」；Rocky／Alma 的「安裝 ffmpeg」會先啟用 EPEL 與 CRB
+- 影音播放器的影片播放實測與補強（2026-11-13）：用 ffmpeg 合成的測試檔實測 mp4（H.264＋AAC）、mkv（H.264、VP9＋Opus）、webm（VP9／AV1＋Opus）、avi（MPEG-4＋MP3）、mov、
+  mp3、ogg、flac、wav、m4a、opus（含中文檔名、內嵌字幕、旁邊的 .srt），畫面、聲音輸出、拖曳進度、暫停、全螢幕、字幕開關、音量、換下一首都正常。修正與新增：
+  ① 壞掉或不支援的檔案顯示「打不開：檔案可能已損壞，或是不支援的格式」並自動換下一首；
+  ② 電腦上的 ffmpeg 缺少解碼器時（Fedora、Rocky 的 ffmpeg-free 沒有 HEVC）先查 ffmpeg 的解碼器清單，畫面上直接寫出是哪一種編碼與要執行的指令
+     （apt：sudo apt install ffmpeg；dnf：openh264／RPM Fusion），VP9、AV1、Opus、Vorbis、MP3、FLAC 一定能播；
+  ③ 「安裝 ffmpeg」在 Rocky／Alma 上會先啟用 EPEL 與 CRB（Rocky 9 預設庫沒有 ffmpeg，實測 EPEL 的 ffmpeg-free 需要 CRB 的 ladspa）；
+  ④ 在影片、封面、空白處按右鍵多了完整選單（播放／暫停、上一首／下一首、全螢幕、清單、隨機、重複、靜音、字幕、在檔案管理員中顯示）；
+  ⑤ .desktop 的 MimeType 補齊（Ogg、Opus、WebM、MKV、AVI、MOV、OGV、M4A、WMA、3GP、m3u 等共約 60 種），關鍵字加上 mkv、webm、avi 等。
+  ffmpeg 仍由使用者自己另外安裝（不放進相依、不預先裝進映像或光碟）；各發行版的 ffmpeg 套件、授權與可解編碼實查結果見使用手冊「影音播放器」一節。
+- 網路設定新增 VPN 與企業 Wi-Fi（2026-11-13）：主畫面多了「VPN」群組，列出 NetworkManager 裡的 WireGuard／OpenVPN 連線，點進去開關連線、
+  自動連線、「連上後所有流量走 VPN」、改名稱與 DNS、OpenVPN 帳號密碼與記住密碼；右鍵選單：連線／中斷、自動連線、編輯、刪除（刪除前確認）。
+  可匯入 WireGuard .conf 與 OpenVPN .ovpn（選檔，X11 也能把檔案拖進視窗），匯入後直接打開設定頁。不做 L2TP／PPTP／IPsec。
+  密碼不放命令列：存起來走 nmcli connection edit 的標準輸入，只連線不存走 0600 的 passwd-file。缺 NetworkManager-openvpn 時 OpenVPN
+  那一列變成說明＋「安裝」按鈕（pkexec，--no-install-recommends，不會帶進 -gnome）；套件建議依賴 network-manager-openvpn（Rocky 在 EPEL）。
+  企業 Wi-Fi（WPA-Enterprise）：掃描到 802.1X 的網路清單上有「企業」徽章，點了開設定頁——EAP（PEAP／TTLS）、階段 2（MSCHAPv2／PAP）、身分、
+  密碼、匿名身分、CA 憑證（選檔／系統憑證／不驗證，不驗證會紅字警告並再問一次）；連不上會把剛建的設定檔刪掉，改完可再試。
+  Wi-Fi 與網路卡的清單也補了右鍵選單。libpomelo：新增 pm_ui_item_rclick（清單列右鍵）、pm_ui_on_drop（X11 拖放檔案）；
+  修正 pm_ask 在 X11 的 pm_ui_run 裡面呼叫會當掉（視窗結構是 static、被內層覆蓋）；pm_pkg_name 加 network-manager-openvpn。
+- 啟動器的應用程式分類（2026-11-12）：上方多了分類頁籤——全部、工具類、辦公類、文書類、娛樂類、生產力類、其他（沒有程式的分類不顯示），
+  點一下或按 Tab／Shift+Tab 切換；打字搜尋時仍在全部程式裡找。程式依 .desktop 的 Categories 自動歸類（Pomelo 自己的程式可用
+  X-Pomelo-Productivity 這類標記指定），不合意可以在圖示上按右鍵直接改分類（記在設定，下次還在；選「自動分類」恢復）。
+  libpomelo 新增 pm_app_category／pm_app_auto_category／pm_category_name；X11 與原生 Wayland 的啟動器都有。
+- 小柚（AI 小幫手）更多日常問題不經過模型（2026-11-11）：健康檢查、開關應用程式（口語說法放寬）、安裝／移除套件（確認視窗＋pkexec）、
+  關機／重開機／登出（先確認）、截圖、日期、IP／系統資訊、算術、單位換算、找檔案，都在快速通道直接處理，不用等模型；比對不到才交給模型。
+  測試句從 173 增到 374（含約 100 句不該誤判的反例）。詳見 docs/AI小幫手.md。
+- Ubuntu 26.04 arm64 版（2026-11-08）：同一份原始碼在 arm64（aarch64）上編成 46 個 .deb，安裝包 pomelo-0.40-ubuntu26.04-arm64.tar.gz，
+  在 x86 主機上用 qemu-user 模擬編譯（./packaging/build-all.sh ubuntu26.04-arm64）。編譯防護（PIE、RELRO、堆疊保護、FORTIFY）與 x86 版相同。
+  建置腳本的坑：舊版 Docker 建置器在 --platform 下 COPY 會失敗（改用 build-arg 傳 patch）、FROM ubuntu:26.04 會拿到本機 amd64 映像
+  （基底改 arm64v8/ubuntu）、Ubuntu 24.04 主機的 qemu-user-static 8.2 沒有 openat2，26.04 的 tar 解壓會失敗（要用 QEMU 10 以上註冊 binfmt）。
+  安裝光碟也有 arm64 版（pomelo-0.40-ubuntu26.04-arm64.iso，~/pomelo-boot/iso/build.sh 26.04-arm64）：只有 UEFI 開機（shim＋Ubuntu 簽章的
+  arm64 GRUB），沒有 BIOS；安裝程式在 aarch64 上跳過 BIOS 開機程式、GRUB 用 arm64-efi。在 QEMU（virt 機器、AAVMF 韌體、TCG 模擬）
+  開機測過：自動登入、桌面與安裝程式正常。實體 ARM 機器（樹莓派 5 要先裝 UEFI 韌體）還沒測。
+- 容器叢集（2026-11-11）：下載 k3s 失敗時會把真正的原因顯示出來（例如 curl: (6) Could not resolve host、憑證錯誤），
+  不再只說「請確認網路有通」；暫時的網路錯誤自動重試 3 次，大檔改用「2 分鐘內低於 512 B/s 才放棄」而不是固定 15 分鐘；
+  查版本多了兩個備援（update.k3s.io 的頻道清單、api.github.com 的最新 release）。
+  k3s 執行檔（80 MB）下載可以續傳：線路慢或中斷時，已抓到的部分留著，按「重試」接著抓（抓完照樣校驗 sha256）；
+  下載中每 10 MB 在日誌顯示一次進度。以前慢的線路（低於 90 KB/s）一定會撞到 15 分鐘時限而失敗，畫面又沒有進度，看起來像當掉。
+  根目錄是 overlayfs 的機器（安裝光碟的試用系統、容器裡的節點）k3s 會卡在「overlayfs snapshotter cannot be enabled」起不來，
+  現在自動改用 native 快照。實測：systemd 容器當節點，從精靈第一步到節點 Ready 全程建成。
+  注意：這台機器上若裝的是 11 月 6 日的 0.42 開發版，apt 會把 0.40 當降版而不裝，要用
+  sudo apt install --allow-downgrades ./*.deb（或 sudo dpkg -i ./*.deb）。
+- 容器叢集：建立叢集時一直「查不到 k3s 的版本」／下載失敗（2026-11-08 修）——update.k3s.io 的穩定版頻道不再接受 HEAD 請求（回 405），
+  改用 GET 不跟轉址來讀版本號。暫時的繞法：設環境變數 POMELO_CLUSTER_VERSION=v1.37.2+k3s1 再開容器叢集。
+- 原生 Wayland 第 8 步（2026-11-08）：小柚（pomelo-assistant 的桌面小幫手）在 Wayland 工作階段是 layer-shell 的原生視窗：
+  外形用透明度、可點範圍照外形（形狀外點下去穿透），對話泡泡是另一張 layer 視窗（一出現就能打字，點別處焦點才移走），
+  右鍵選單原生；拖曳、走動、睡覺照舊。還在 X 上的部分（單一實例與轉交、鎖定狀態、閒置時間）透過 X 連線互通。
+- 原生 Wayland 第 9 步（2026-11-08）：登入畫面 pomelo-greeter 在 Wayland 工作階段直接用 layer-shell（每個螢幕一張 overlay 視窗，
+  主要顯示器那張獨佔鍵盤），不再經過 XWayland、不用 XGrabKeyboard；X 工作階段照舊。
+- 原生 Wayland 第 7 步（2026-11-08）：選單列、Dock、桌布改成 layer-shell 的原生視窗（pomelo-panel 的 panel-wl.c），視窗清單用
+  wlr-foreign-toplevel（X 視窗與原生視窗都列），提示框、Dock 選單、桌面右鍵選單都是原生的；多螢幕每個螢幕一條選單列，Dock 跟著滑鼠換螢幕。
+  XEmbed 系統匣（把 X 視窗嵌進選單列）在原生模式做不到，只剩 SNI／AppIndicator 的圖示；還在 X 上的程式的狀態（輸入法、播放器、錄影）照舊透過 X 互通。
+  libpomelo 多了 pmwl_toplevels／pmwl_next_fds／PMW_ENTER／PMW_LEAVE／pmwl_layer_exclusive；compositor：全螢幕視窗會蓋過原生面板，
+  有 grab 的彈出選單會拿到鍵盤焦點（Esc 可關），layer 視窗出現在滑鼠下方時補送 enter；原生選單點到同一程式的別的視窗也會關掉。
+- 安全性與穩定度（2026-11-08 檢查後修正）：
+  · 所有程式與 libpomelo 編譯時加上堆疊保護、PIE、FORTIFY、完整 RELRO（Ubuntu／Debian 的 gcc 本來就會，Fedora／Rocky 的 RPM 以前完全沒有）。
+  · pomelo-compositor 登出或關機收到結束訊號時不再當掉（以前先拆 scene 再關螢幕，結束時用到已釋放的節點；
+    另外各模組掛在全域物件上的監聽器結束前會拆掉，wlroots 的檢查不會再中止程式）。
+  · pomelo-dm：合成器第一次沒在 20 秒內準備好（慢的機器、沒有硬體 3D 的虛擬機）時，下一輪仍會自動登入；以前那一輪被跳過就直接停在登入畫面。
+  · 健康檢查：Fedora／Rocky 的「安全性更新不會自動安裝」也有一鍵開啟（dnf-automatic，只裝安全性更新；
+    Fedora 41 起是 dnf5 外掛，設定檔在 /etc/dnf/dnf5-plugins/automatic.conf，兩種路徑都認得）；
+    Fedora／Rocky 的安全性更新數改成去重後的套件數，不會再出現「安全性更新比總更新多」。
+  · 容器叢集：NFS 共用儲存只開放給叢集裡的節點（以前 /etc/exports 寫 *，整個網路都能掛），加節點時自動把新節點加進允許清單；
+    推檔到節點的暫存檔改用節點上 mktemp 產生的檔名；快照資料夾改用系統呼叫建立與刪除，不再經過 shell。
+- 試算表：函式從 27 個增加到約 130 個（統計、條件統計 SUMIFS／COUNTIFS／AVERAGEIF、文字 LEFT／MID／TEXTJOIN／SUBSTITUTE 等且中文一字算一個、
+  INDEX／MATCH／HLOOKUP／XLOOKUP、IFS／SWITCH、日期 DATE／YEAR／WEEKDAY／DATEDIF 等、三角與對數）；修正 `$A$1` 寫法無法計算、小寫位址、TODAY／NOW 序號跟 Excel 不同。
+  新增拖曳填滿（選取範圍右下角的小方塊：數字 1 2 3 遞增、趨勢、結尾數字的文字、星期月份天干地支清單、公式調整相對參照，按住 Ctrl 只複製，雙擊往下填到資料結束）、
+  Ctrl+D／Ctrl+R、「資料」選單（序列填滿、由小到大／由大到小排序、排序…可指定兩層排序與標題列）。
+  試算表按右鍵有選單：儲存格、列號、欄標都可以插入或刪除列／欄（選幾列就一次處理幾列）。
+- 小柚（桌面小幫手）新增「會長大」的樣式：一開始是柚子果的角色，跟牠對話累積 20 次長成小女孩、50 次再長成成年，
+  長大那一刻有淡入淡出的過渡；也可以固定選柚子果、小女孩或成年，原本六種機器人配色照舊可選。動作（走路、轉身、歪頭、眨眼、睡著、被抓起來）
+  是用同一張圖變形做的。
+- 新程式「容器叢集」（pomelo-cluster，選裝）：用點選的方式建好、管好一個 Kubernetes 叢集，引擎是 k3s（第一次建立時下載，校驗 sha256）。
+  四步精靈：要幾台（只用這台電腦，或多台填 IP 與 SSH 帳號）→ 體檢每台硬體並建議角色（Server／Client／NFS 儲存／Redis／資料庫／映像庫，
+  三台以上合格建議高可用；建議可以改，不合理的組合會提醒）→ 確認 → 逐台安裝並顯示日誌（失敗可重試那一步）。
+  架構圖：主控台、Server（控制平面，三台以上畫成 etcd 環）、Client，每台掛角色標籤與 Ready 燈、CPU／記憶體條，精靈勾角色時即時畫出規劃中的架構。
+  進階角色真的部署：Redis、資料庫（PostgreSQL／MariaDB／MongoDB）、映像庫釘在勾的那台，密碼只放叢集 Secret，名片顯示連線字串；映像庫各節點自動信任。
+  應用型錄：Nginx、WordPress、Gitea、MinIO、Nextcloud、Uptime Kuma 點一下部署（nip.io 網址），「用我的映像」填映像與埠就生出 Deployment＋Service＋Ingress，可預覽 YAML。
+  加節點（體檢後裝成 Client 加入）、移除節點（drain、刪除、拆 k3s）。
+  維運：告警與桌面通知（新問題才通知、合併、背景監看 timer）、連線憑證到期提醒與更新、k3s 逐台滾動升級（等服務真的重啟、版本對了才換下一台）、
+  備份與還原（清過的 JSON＋NFS 資料用 cpio，還原時先建磁碟區再搬資料最後套用工作負載）；小柚可問「叢集怎麼了」、說「幫我部署 WordPress」。
+  命令列新增 status、watch、backup、backups、restore、upgrade、renew-cert、cert、import。
+  帳號與權限：給同事或工具一份只有部分權限的 kubeconfig（唯讀／可修改／管理員，範圍一個命名空間或整個叢集），建立、匯出、刪除（刪了立刻失效）。
+  GitOps：叢集記一個 Git 倉庫，同步就是抓倉庫再 apply（有 kustomization 用 kustomize）；有新的提交才套用，可開自動同步（背景監看）。
+  離線安裝包：「製作」把 k3s 與系統映像下載到一個資料夾、「匯入」後沒有網路也能建叢集（系統映像隨執行檔送到節點）。
+  多叢集：首頁每個叢集旁顯示節點 Ready 數或「連不上」。匯入叢集支援 kubeconfig 檔案路徑形式的憑證。
+  總覽：儀表板新增「總覽」頁，一眼看完跑了哪些應用與容器、每個的 CPU／記憶體用量（依應用或依機器）、每台機器使用率；點進應用看容器映像與埠、
+  資源、Pod 即時用量、網址、磁碟區，並有看日誌、進容器、重啟、副本數、刪除。快照（設定存本機＋每個磁碟區用 Job 整份複製，不靠 CSI，local-path 與 NFS 都能用，
+  預設先暫停再複製）、還原、複製成新應用（從現況或快照；標籤與 Service 與磁碟區改名不搶流量，可連資料一起）。
+  修正：備份只打包還在用的磁碟區並記下確切對應（舊版整個資料夾打包、還原時用猜的，會還原到舊叢集殘留的資料）；移除叢集前先關掉服務的自動重啟。
+  儀表板：節點量表、Pod 狀態與白話解釋、日誌、進到容器的終端機、工作負載的重啟／副本數、服務與網址、儲存、事件；套用 YAML 檔或網址、
+  HelmChart；匯入別人的 kubeconfig；叢集名片；移除叢集。命令列 pomelo-cluster nodes|pods|status|apply|probe。
+
+- 右鍵選單補齊：
+  · 桌面：在桌布上按右鍵可以更換背景圖片、調外觀、桌面與 Dock、顯示器設定、開啟終端機、系統設定（兩種工作階段都有）。
+  · 終端機：複製、貼上、全選、新分頁、新視窗、在檔案管理員中開啟目前的資料夾、放大縮小文字、清除畫面、關閉分頁，
+    旁邊標出快捷鍵；選取的是網址時多一項「開啟連結」。裡面的程式（vim、htop）自己要用滑鼠時，右鍵照樣給程式，
+    按住 Shift 再按右鍵就是終端機的選單。
+  · 小柚瀏覽器：網頁空白處的右鍵選單多了複製網址、在網頁中尋找、列印、放大縮小、全螢幕；選取文字時可以直接用
+    目前的搜尋引擎搜尋。
+  · 設定程式的文字輸入框（Wi-Fi 密碼、網址、容器名稱…）：可以複製貼上了（Ctrl+C／Ctrl+V／Ctrl+X，Shift+Insert 也能貼上），
+    按右鍵有剪下、複製、貼上、全部清除；密碼欄只能貼上、不能複製出去。從網頁複製密碼時多帶的換行會自動拿掉。
+    開啟／另存新檔對話窗的名稱也能貼上。
+- 原生 Wayland（第二階段）：容器、語言與輸入法、活動監視器、網路、音效、儲存空間、外觀、藍牙、軟體中心、系統設定，
+  以及虛擬機器、遠端桌面、密碼與鑰匙圈的管理視窗（虛擬機器與遠端桌面的畫面視窗、鑰匙圈的密碼提示窗還是 X11），共十三個程式，在 Pomelo 登入畫面的工作階段裡直接用 Wayland 顯示，不再經過 XWayland；外觀、操作與快捷鍵都跟以前一樣
+  （中文輸入、下拉選單、捲動、Ctrl+W 關閉），畫面少複製一次。開啟／另存新檔對話窗也有原生版（掛在叫它的視窗上面，
+  「要取代嗎」一樣會問）。X11 工作階段、或設定 session.wayland = 0 時照舊。
+  只想讓某一個程式退回 XWayland，可以這樣啟動：POMELO_BACKEND=x11 pomelo-sound
+- 原生 Wayland（第三階段：桌面外殼）開始：
+  · 控制中心改成原生（layer-shell 的 overlay 層）：位置、高度跟著內容、點外面或按 Esc 關閉都跟以前一樣。
+  · 通知改成原生：右上角往下排、新的在上面、緊急的有紅條，點一下觸發並關閉、時間到自動消失。
+  · 啟動器（也是 Super+空白鍵的搜尋）改成原生：開在游標所在的螢幕，背景是模糊的桌布，打字搜尋（輸入法可以用）、
+    右鍵保留在 Dock、再按一次快捷鍵關閉都跟以前一樣。
+  · 螢幕鎖定改由畫面核心（pomelo-compositor）保證：鎖定期間鍵盤滑鼠只會給鎖定畫面，任何程式都搶不走焦點、
+    也叫不出總覽等快捷鍵（音量鍵照常）；每個螢幕都有鎖定畫面，鎖定中插上的螢幕也會蓋住。鎖定程式萬一當掉，
+    畫面維持鎖住並自動重開（一分鐘內重開太多次時，按任何鍵或等一分鐘再開），不會露出桌面。
+    沙箱裡的程式不能要求鎖定（避免假的鎖定畫面騙密碼）。
+  · 截圖與錄影在 Pomelo 登入畫面的工作階段裡改跟畫面核心要畫面：原生視窗、控制中心、通知這些以前拍出來是黑的，
+    現在都拍得到；點選視窗截圖也認得原生視窗。
+  · 閒置關螢幕在這個工作階段真的會關（以前 X 的 DPMS 管不到實際的螢幕），動一下滑鼠鍵盤就亮。
+  · 顯示器設定在這個工作階段真的能改解析度、旋轉、排列（以前只改到 XWayland 的虛擬螢幕），登入時也會套用保存的設定；
+    也支援 wlr-randr、kanshi 這類工具。螢幕轉向、改解析度或拔掉螢幕後，跑到外面的視窗會自動搬回來。
+  · 換鍵盤（插上 USB 鍵盤、接上擴充座）後，正在用的程式有時收不到按鍵的問題修正。
+  · 內容比螢幕高的彈出式視窗（控制中心）不會再每次重畫都多畫兩遍。
+  · 選單列、Dock、桌布、小柚與登入畫面這一版還是透過 XWayland，下一版接著改。
+- 電腦健康檢查（系統設定 →「健康檢查」）：一次檢查八類，結論、說明與建議都是白話，有修正方法的項目附按鈕（先問過才做）：
+  · 網路：從網路服務、Wi-Fi、IP、路由器、DNS 一路查到網際網路，說出斷在哪裡；Wi-Fi 加密、訊號、頻道擁擠、VPN、Proxy。
+    網路設定也有「檢查網路」。
+  · 安全性：安全性更新、防火牆、對網路開放的服務（資料庫、Docker 管理介面會標紅）、SSH 設定、docker 群組、自動登入、
+    自動鎖定、磁碟加密、安全開機、AppArmor／SELinux、登入時自動執行的程式、可疑的程式、沒有密碼的 SSH 私鑰；
+    輸入管理員密碼還會檢查空密碼帳號、舊的密碼加密、sudo 免密碼、setuid 程式、SSH 登入失敗次數（只讀，只輸出結論）。
+  · 系統與軟體更新：系統版本的支援期限、更新與安全性更新、自動安全性更新、裝到一半的套件、要重新開機才完成的更新、韌體更新。
+  · 開機與系統穩定：啟動失敗或一直重新啟動的服務、當掉的程式、硬碟讀寫錯誤、開機最慢的步驟、日誌太大、磁碟快滿、時間校正。
+  · 系統服務：SSH、Apache、Nginx、MySQL、PostgreSQL、Docker、Redis、MongoDB、Samba 的執行狀態與埠、網站憑證到期、容器狀態。
+  · 電腦變慢（活動監視器的「找出原因」）：CPU、記憶體、硬碟哪個是瓶頸與是誰、過熱降速、背景工作、記憶體不足被強制結束的程式。
+  · 硬體與驅動：電腦規格、顯示卡驅動、沒有驅動的裝置、缺少的韌體、聲音輸出、USB 錯誤、硬碟健康。
+  · 電池：健康度、充放電次數、充電上限（電源與鎖定頁有「檢查電池」）。
+  · 病毒掃描（選用，第一次用時問要不要安裝 ClamAV）：掃描「下載」、家目錄或外接裝置，顯示進度，找到的檔案可以隔離（可還原）
+    或刪除；檔案管理員的資料夾右鍵「掃描病毒…」、小柚的「幫我掃毒」也能打開。安全性檢查會提醒上次掃描的結果。
+  · 套件清單（SBOM）：健康檢查裡的「套件清單」列出裝了哪些套件：名稱、版本、授權、說明，可以搜尋，
+    匯出 CycloneDX 1.5 JSON（給資安工具或稽核）或 CSV 到「下載」資料夾。按「下載漏洞資料」會把發行版公開的
+    漏洞清單（Ubuntu 的 Security OVAL、Debian 的 Security Tracker、Rocky／AlmaLinux 的 OSV；Fedora 用 dnf 的更新資訊）
+    整份抓到這台電腦比對，不會上傳套件清單；之後想更新就再按一次。結果分「有更新可裝」（紅燈，請裝更新）與
+    「發行版還沒釋出修正」（多半低風險，藍燈）；點套件看每個 CVE 的嚴重度、說明、修正版本與連結。
+    安全性檢查多一項「已知漏洞」，小柚的資安檢查也會提到。終端機：pomelo-system --sbom [--json|--csv] [--update]。
+  · 病毒掃描頁顯示病毒碼幾天前更新的，超過一週提醒，可以手動「更新病毒碼」。
+  · 終端機：pomelo-system --check [類別] [--json]。
+- 小柚：新增預設問題「幫我做資安檢查」「幫我檢查電腦」「網路怎麼了？」「電腦為什麼變慢？」，也聽得懂「上不了網」「有沒有更新」
+  「網站打不開」這類說法，直接跑對應的健康檢查並整理結果（檢查是寫好的程式，不是 AI 自己下指令）；「打開健康檢查」開系統設定那一頁。
+- 詢問視窗的問題太長時會自動換行（以前會被截斷成一行）。
+- 簡報：
+  · 設計主題重做：12 種主題（新增海洋、幾何、科技、晨曦）都有自己的背景與裝飾圖形（漸層、波浪、幾何圖形、光暈…），
+    標題投影片與內容投影片的版面不同，標題、副標題、內文會搬到主題的位置並換上搭配的字型、字級、顏色。
+    「設計」打開主題庫，每個主題都有預覽；點一下套用到整份簡報，按右鍵可以只套用到目前這張。新增的投影片跟著主題。
+    存成 .pptx／.odp 後在 PowerPoint、LibreOffice 裡看起來一樣，用 Pomelo 再打開還能繼續換主題。
+  · 新增投影片可以選更多版面：標題投影片、標題及內容、兩欄內容、只有標題、空白；工具列有「＋ 新增投影片」，也可以按 Ctrl+M。
+  · 右鍵選單：縮圖側欄與投影片總覽（新增、再製、刪除、上移下移、設計主題、背景色、轉場）、物件（剪下、複製、貼上、
+    再製、刪除、移到最上層／最下層、顏色、進場動畫）、投影片空白處（貼上、新增投影片、插入文字方塊或圖片）。
+  · 物件可以剪下、複製、貼上、再製（Ctrl+X／C／V／D）。
+  · 文字方塊太長會自動折行（以前超出框的字直接被切掉）。
+  · 縮圖側欄投影片多的時候可以捲動，切換投影片時自動捲到看得到的地方；第一張的編號不會再被切掉一半。
+  · .odp 的文字框在 LibreOffice 裡不會再被置中、垂直置中；.pptx 的文字邊距與東亞字型照 Pomelo 的畫法寫入；
+    同一張圖片在檔案裡只存一份。
+- 原生程式的選單：選單超出視窗下緣時，視窗下方的圓角不會再蓋住選單；按下打開選單、手還沒放開時滑到第一項，
+  不會誤選（例如軟體中心的「安裝」）。
+
+- 原生 Wayland（第一階段）：用 Pomelo 登入畫面（pomelo-dm）的工作階段裡，GTK、Firefox 這類程式直接用 Wayland
+  顯示，不再經過 XWayland；Pomelo 自己的程式與還不支援 Wayland 的程式照舊走 XWayland，兩種視窗混在一起用沒有差別。
+  · 外框、陰影、最大化、全螢幕、最小化、左右半邊、總覽、Alt+Tab 都跟以前一樣；自己畫標題列的程式（GTK4）保留它的樣子，
+    其他的加上 Pomelo 的標題列。程式改變大小、拖曳標題列移動、從邊緣拉大小都正常。
+  · 中文輸入：Pomelo 輸入法也服務原生程式（注音、拼音、倉頡、日文、韓文…），選字列跟著文字游標，Shift 輕點切換英文，
+    密碼欄自動不轉換。同一個輸入法同時服務原生程式與 X 程式。
+  · Dock 與選單列看得到原生程式的視窗：點一下叫回、右鍵選單結束、選單列顯示目前程式的名稱；小柚也看得到。
+  · 鍵盤配置（語言與輸入法設定裡選的）原生程式也跟著用；在原生程式裡打字時不會被判定為閒置而變暗、鎖定；
+    程式播放影片時要求不要變暗，也會照辦。
+  · 鎖定畫面、選單、虛擬機器畫面抓住鍵盤時，按鍵不會跑到後面的原生程式；鎖定時總覽、切換視窗這些快捷鍵也不作用。
+  · 遊戲與 3D 程式可以把滑鼠鎖在視窗裡；虛擬機器、遠端桌面這類程式拿到焦點時可以要求 Super 等快捷鍵交給它；
+    選取文字後按滑鼠中鍵貼上；剪貼簿管理員；程式可以要求跳到前面（例如點了終端機裡的連結，瀏覽器跳出來）。
+  · 小柚瀏覽器與 Qt 程式也改用原生 Wayland（Qt 用 Pomelo 輸入法時選字列一樣跟著游標）。Chromium、VS Code 這類
+    Electron 程式仍走 XWayland：它們的原生模式用的輸入法協定 Pomelo 還沒支援，改了會打不了中文。
+  · 瀏覽器的視訊會議可以分享螢幕（透過 xdg-desktop-portal-wlr，會一起建議安裝；Rocky 9 沒有這個套件）；
+    有裝 slurp 的話可以選要分享哪個螢幕。
+  · 第三方的原生 Wayland 面板、桌布、通知、選取範圍工具（layer-shell，例如 swaybg、mako、slurp）可以用了，
+    面板保留的空間最大化時會避開；工作列程式可以列出、切換、關閉視窗（X 與原生的都有）。
+  · 安全：Flatpak 等沙箱裡的程式看不到截圖、虛擬鍵盤與滑鼠、輸入法、剪貼簿監看、視窗清單這些特權功能；
+    只有 XWayland 能用的協定其他程式也看不到。
+  · 某個程式在原生模式有問題時，可以整個退回 0.36 的方式（全部走 XWayland）：在 ~/.config/pomelo/settings.conf
+    加一行「session.wayland = 0」再重新登入。
+- 效能與資源：
+  · 桌面上的小柚：沒人在看時（螢幕鎖定或三分鐘沒動作）停下來休息，幾乎不用 CPU；走一段會休息比較久；
+    畫機器人的速度快了約四成。以前不管有沒有人在看都一直全速畫，一整天下來平均吃掉一個處理器核心的一兩成。
+  · 視窗陰影改成所有視窗共用一小張圖拼起來：拖曳改變大小時不用每一步重畫整片陰影（大視窗更順），
+    每個視窗也少用好幾 MB 記憶體；開機到登入畫面之間的背景少用約 7 MB（每個螢幕）。
+  · 登入後桌面出來得更快：縮放好的桌布存起來，不用每次登入都從原圖（常常是 4K 的大圖）重新解壓縮小。
+  · 鎖定畫面只在時鐘的分鐘改變時重畫（以前每 2 秒重畫整個螢幕）。
+  · 安裝更精簡：「用預設程式開啟」改由 Pomelo 自己處理（新的 pomelo-open 指令），不再需要 xdg-utils 與它帶進來的
+    一大串 perl 模組；開發用的 libpomelo-dev 移到安裝包的「開發用」資料夾，一般安裝不會再帶進編譯器標頭檔等開發工具。
+    Ubuntu 24.04 全部安裝時少了約 110 個套件、125 MB。從舊版升級時 apt 會順便移除舊的 libpomelo-dev。
+
+0.36 更新（2026-11-02）：
+- 新的「小柚瀏覽器」（pomelo-browser）：輕巧、開得快的網頁瀏覽器，Dock 預設就有它。分頁、網址列直接搜尋
+  （預設 Google，可改 DuckDuckGo、Bing）、開始頁（小柚、搜尋框、常去的網站）、下載、在網頁中尋找、縮放、列印、
+  全螢幕，網站要用攝影機、麥克風、位置或通知時會先問。介面有 13 種語言。網頁引擎是系統的 WebKitGTK 6.0，
+  安全性更新跟著系統來；同時只執行一個（再開一次只是多開視窗），沒有獨立顯示卡的電腦（包括虛擬機）自動改用 CPU 繪圖。
+  跟 Firefox、Chromium 的比較見安裝包裡的「小柚瀏覽器效能比較.pdf」（只開一個網頁時記憶體約 Chromium 的一半）。
+  · 按網址列的鎖頭（左鍵或右鍵）看網站的憑證：發給誰、發證單位、有效期間、適用網址、憑證鏈、SHA-256 指紋，可以複製憑證。
+  · 網頁的右鍵選單是自己的翻譯（13 種語言），沒有用不到的開發者工具與輸入法選單。
+  · 只打網址（沒打 https://）時先用加密連線，網站不支援才改用沒有加密的連線；連不上時用看得懂的話說明原因。
+  · Rocky Linux 9 沒有 WebKitGTK 6.0，這個版本沒有小柚瀏覽器。
+  · Ubuntu 24.04 起系統限制程式使用網頁沙箱，套件附一份 AppArmor 設定（跟 Ubuntu 自己的 Epiphany 一樣）；
+    設定沒有載入時會跳出說明，不會一開就不見。
+  · Debian 13 的安裝步驟多一行：先用精簡方式裝網頁引擎，不然 apt 會連帶裝進約 300 MB 用不到的影音外掛與圖片工具。
+- 新的「虛擬機器」（pomelo-vm）：用 QEMU／KVM 在這台電腦裡執行別的作業系統，不需要 libvirt。
+  · 建立時選安裝光碟（.iso）會從檔名猜作業系統與架構，自動給建議的記憶體、處理器、硬碟大小；Windows 會打開
+    UEFI、安全開機與 TPM 2.0（Windows 11 需要），硬碟用 SATA、網路卡用 e1000e（Windows 內建就有驅動程式）。
+  · x86_64 用 KVM 硬體加速；ARM64 用軟體模擬（較慢，適合裝伺服器或測試）。
+  · 畫面視窗：上面是電源、暫停、光碟、USB、快照、按鍵、檢視；鍵盤直接送按鍵位置，跟兩邊的鍵盤配置無關；
+    滑鼠不用抓住、不用按鍵放開；Ctrl+Alt+Enter 全螢幕，Ctrl+Alt+End 送 Ctrl+Alt+Del；用 VirtIO 顯示卡時
+    虛擬機器的解析度跟著視窗。關掉畫面視窗可以讓虛擬機器在背景繼續執行，之後再打開。
+  · 快照：執行中也能拍（連記憶體一起存），隨時回到拍的時候；「儲存狀態並關閉」下次開機從原來的地方繼續。
+  · USB 穿透：把隨身碟、外接硬碟、手機等交給虛擬機器，外接硬碟會先在這台電腦退出。
+  · 網路：NAT（可以設定轉送連接埠，例如 ssh 進虛擬機器）、橋接（虛擬機器在區域網路上像另一台電腦）或不接網路。
+  · 清單與設定頁顯示每台虛擬機器的 CPU、記憶體、磁碟讀寫、網路收送，設定頁有最近一分鐘的圖表。
+  · 聲音從這台電腦播出；Ubuntu／Debian 要用麥克風時可以加裝 QEMU 的聲音模組。
+  · QEMU 第一次使用時才安裝，而且只裝需要的部分（Ubuntu 的 qemu-system-x86 預設會連帶裝 GTK 介面等，這裡不裝）。
+- 新的「容器」（pomelo-docker）：管理 Docker。
+  · 還沒有 Docker 的話按「安裝」（Ubuntu／Debian 用系統的 docker.io、Fedora 用 moby-engine、Rocky 用 Docker 官方的套件庫），
+    沒在執行、帳號沒權限時也有一個按鈕解決。
+  · 容器清單（compose 專案會標出來）：開始、停止、重新啟動、暫停、刪除、改名、設定開機自動啟動；在終端機裡進到容器
+    （有 bash 用 bash，沒有用 sh）、看輸出紀錄。
+  · 從映像建立容器：連接埠、資料夾（本機資料夾或資料卷）、環境變數、指令、自動啟動，映像還沒有會先下載。
+  · 映像：下載、刪除、清理沒在用的舊映像與建置快取；資料卷：看誰在用、刪除沒在用的。
+  · 備份：容器的設定、現在的樣子（映像）、資料卷與掛載資料夾裡的檔案存成一個資料夾，可以複製到別台電腦還原；
+    還原時名稱被用掉會加上 -restored，連接埠被佔用時容器照樣還原、只是先不啟動。也可以用指令 pomelo-docker --backup 放進排程。
+  · 每個容器的 CPU、記憶體、網路、磁碟使用量，容器頁有最近一分鐘的圖表。
+- 輸入法：GTK4 的程式（小柚瀏覽器等）也能用 Pomelo 輸入法打中文。新帳號第一次登入時，Qt 程式打不了中文的問題也修好了。
+- 新增 Debian 13 版（11 月 1 日先以 0.35 發行）。
+- 開機更快、更順：
+  · 登入畫面不再等網路連好才出現。
+  · 開機畫面（有裝 plymouth 時）直接接到登入畫面，中間不會閃過文字畫面。
+  · 桌面背景在每個螢幕都畫上跟登入畫面一樣的漸層，桌布還沒畫好之前不會是一片素色。
+- 修正：
+  · 有些程式（終端機等）的視窗裡看不到滑鼠指標。
+  · 在 Dock 點最小化的視窗叫不回來。
+  · 視窗陰影往左上偏，右邊沒有陰影。
+  · 沒有硬體 3D 加速的電腦（VirtualBox、VMware 等虛擬機）上，選單列、終端機的畫面要等一下才更新。
+  · 背景的程式可以把滑鼠指標換掉或藏起來。
+  · 密碼欄開著注音時，按鍵被輸入法吃掉（密碼欄一片空白）或把中文打進密碼。
+  · 對話窗、說明文字換行：中日文在字與字之間換行，「，。」不會放在行首；泰文不會拆開母音與子音。
+  · 小柚背單字的視窗在選單列顯示成程式代號、Dock 上沒有圖示；背單字的介面文字補上 13 種語言的翻譯。
+  · Fedora、Rocky：沒有裝 seatd 時登入畫面一片黑。pomelo-compositor 現在需要 seatd，安裝時自動啟用；
+    pomelo-dm 改用自己的 SELinux 規則模組（semodule），不再需要 policycoreutils-python-utils。
+  · Ubuntu、Debian 版的 pomelo-theme 建議安裝 DMZ 白色游標主題（之前要靠其他桌面套件帶進來）。
+
+0.35 更新（2026-10-29）：
+- 新的畫面核心「pomelo-compositor」：自己寫的 Wayland compositor（用 wlroots），把原本的 Xorg＋picom＋pomelo-wm
+  三個程式合成一個，開機到桌面更快（測試環境量測快約 43.6%）。既有的 Pomelo 程式都不用改，透過內建的 XWayland
+  照常執行；陰影、淡入淡出、視窗圓角直接由 compositor 畫，不用再另外跑 picom。
+  · 登入管理員 pomelo-dm 改成啟動 pomelo-compositor，鍵盤、螢幕的權限交給 libseat 管理。
+  · 桌布改由 pomelo-panel 畫在最底層，桌布設定（圖片、漸層、顯示方式）跟以前一樣。
+  · 選單、Dock、通知、提示框、控制中心、截圖工具與小柚的圓角邊緣，改用透明視窗畫，角落不會有色塊。
+  · 對程式來說工作階段仍然是 X11：Chrome、Electron、Qt 這類程式照常用 X11 開視窗。
+  · 選單的「重新啟動 Pomelo」改成重新啟動選單列與 Dock，開著的視窗都會留著。
+  · 系統設定 → 外觀的「視窗陰影與動畫」改成顯示「內建」，不再安裝 picom（0.33 加的 picom 開關只留給舊的 pomelo-wm）；
+    Rocky Linux 9.6 原本沒有 picom、不能開，現在一樣有陰影與動畫。
+  · 舊的 pomelo-wm 仍然保留，需要時可以換回原本的 X11 路徑（套件相依是 `pomelo-wm | pomelo-compositor`）。
+  · Ubuntu 22.04 與 Rocky Linux 9.6 內建的 wayland-server／pixman 版本比較舊，建置時自動補一份新版，打包在
+    pomelo-compositor 自己的目錄裡，不影響系統其他程式。
+- 登入更快：先把選單列、Dock、桌布畫出來，再啟動其他自動啟動的程式；鍵盤、滑鼠設定改在背景套用，不擋桌面。
+  其他套件附帶的 picom 等合成器自動啟動會跳過（畫面合成由 Pomelo 自己處理，同時開兩個只會互搶、拖慢登入）。
+- 新的「開啟／另存新檔」視窗：上面是目前的資料夾（↑ 回上一層），左邊是家目錄、桌面、文件、下載、圖片、電腦，
+  中間列出資料夾與檔案（只列目前類型的檔），下面是名稱、類型與「取消」「儲存／開啟」。雙擊進資料夾或選檔，
+  Enter、Esc 也能用；另存時檔案已經存在會先問要不要取代，名稱可以用輸入法打中文。文書、試算表、簡報的開啟、
+  另存新檔、插入圖片，以及 PDF 閱讀器的開啟、另存新檔都改用它（PDF 閱讀器原本是在上方打路徑，常被以為按了
+  「開啟檔案」沒反應）。
+- 文書、試算表、簡報關閉前問「要先儲存嗎？」的視窗改成常見的樣子（跟繪圖一樣）：一句問題，「不要儲存　取消　
+  儲存」橫排靠右，儲存是預設（Enter），Esc＝取消。
+- 文書、試算表、簡報加上最下面的狀態列，右邊都有縮放控制（−、滑桿、＋、百分比，點百分比可以選常用比例）：
+  · 文書：第幾頁／共幾頁、字數；檢視方式「單頁」（整頁放得下）、「多頁」（兩頁並排）、「頁寬」，縮小到放得下
+    幾頁就自動並排。
+  · 試算表：選兩格以上時顯示平均值、項目個數、加總；Ctrl＋滾輪也能縮放。
+  · 簡報：第幾張、備忘稿開關、標準／投影片總覽／開始播放、符合視窗；放大後用滾輪捲動，沒放大時滾輪換上一張、
+    下一張。
+- 修正：
+  · 文書打字、按 Enter 時，畫面不會跟著游標往下捲（游標跑到看不到的地方）。
+  · 文書按「儲存」後，如果另存新檔被取消，會直接關掉、修改不見；現在會留著。
+  · 小柚開著的時候更新過套件，模型閒置卸載後就叫不起來（一直顯示「模型沒有成功啟動」）。
+  · 系統設定「登入畫面」：「套用」以前只在頁面最底下，選好背景、預覽過，很容易以為已經存好了，登出後又變回原本的；
+    現在一改就在最上面出現「設定還沒套用」與「套用」「復原」。輸入密碼視窗按了取消之後，「套用」也不會消失。
+- 開發者：libpomelo 新增 pm_ask()（詢問視窗）、pm_ui_buttons()（橫排按鈕）、pm_file_dialog()（開啟／另存新檔）、
+  pm_zoom_*（狀態列縮放控制）、pm_round_window()（有合成器時角落透明的圓角視窗）、pm_logout()（登出）。
+
+0.34 更新（2026-10-21）：
+- 新程式「遠端桌面」（pomelo-remote，在啟動器裡）：連到 Windows 電腦的桌面（RDP 協定）。協定用 FreeRDP 函式庫
+  （Ubuntu 24.04／26.04、Fedora、Rocky 用 FreeRDP 3，Ubuntu 22.04 用 FreeRDP 2，程式碼同時支援兩個版本，
+  編譯時用 pkg-config 自動挑），視窗、畫面更新、鍵盤滑鼠、游標、剪貼簿、對話框全部是自己用 Xlib + cairo 畫的，
+  不用 xfreerdp 的介面（兩個可以同時裝，不衝突）。
+  · 常用電腦清單（存在 `~/.config/pomelo/remote.tsv`），也可以「快速連線」直接輸入電腦名稱或 IP（可寫
+    使用者@電腦）不存起來；點兩下清單裡的電腦直接連線。
+  · 密碼存在鑰匙圈（走 freedesktop 的 Secret Service，pomelo-keyring、gnome-keyring 都能用），不會寫進設定檔；
+    沒有鑰匙圈或鎖著的話每次連線都問密碼，連上後才存（密碼錯的不存），存密碼時鑰匙圈要跳確認視窗會交給子行程做，不卡住連線畫面。
+  · 畫面大小：「符合視窗」請伺服器把解析度改成視窗大小，拉視窗時跟著變（按 500ms 節流送出，避免拉視窗時洗版）；
+    全螢幕；1280×720／1366×768／1920×1080／2560×1440；或自訂寬高。連線後 Ctrl+Alt+Enter 切換全螢幕，
+    全螢幕時滑鼠移到最上面會冒出工具列（視窗化、Ctrl+Alt+Del、中斷連線），Ctrl+Alt+Home 也可以叫出來、Ctrl+Alt+End 直接送 Ctrl+Alt+Del。
+  · 顏色深度（16／24／32 位元）與網路品質（自動偵測／數據機／中速寬頻／高速寬頻／區域網路，比照 Windows「遠端桌面連線」
+    的「體驗」頁籤：頻寬越窄，桌布、視窗拖曳預覽、選單動畫、佈景主題、游標陰影這些效果自動關掉，連線比較不卡）。
+  · 裝置對應：可以把本機一個資料夾分享給遠端電腦（Windows 那邊的「本機」會多一個磁碟機），也可以分享本機印表機。
+  · 剪貼簿文字雙向（CF_UNICODETEXT／CF_TEXT，換行在 Windows／Linux 之間自動轉 CRLF／LF）、聲音播放、
+    Caps／Num／Scroll Lock 狀態切回視窗時同步、自動重新連線。
+  · 鍵盤：用 XKB 的按鍵名稱對應 RDP 掃描碼（不管鍵盤配置，中英文、各國鍵盤都適用），找不到對照的鍵用 Unicode 直接送字。
+  · 憑證：第一次連某台電腦，或憑證換了（可能是真的換電腦，也可能是有人在中間攔截），會跳出視窗列出電腦、憑證名稱、
+    指紋，讓你選「信任並記住」「只連這一次」或「取消」；Windows 預設的遠端桌面憑證本來就不是信任的機構簽發的，單純沒簽發機構不會特別警告。
+  · 不需要 NLA（例如 xrdp）的伺服器，登入視窗可以不輸入帳號密碼、按「不輸入，在遠端畫面登入」，在伺服器自己的登入畫面輸入。
+  · 用 xrdp 與一個有 NLA 驗證的 FreeRDP 影子伺服器（freerdp-shadow-cli3）都測過完整的連線、輸入、中斷重連流程；
+    發現 cairo 包著 FreeRDP 的畫面緩衝區時會快取舊畫面（FreeRDP 直接改那塊記憶體，cairo 不知道），改成每次更新先複製
+    到一張小影像再畫；視窗開著 backing store 的連線中畫面在某些環境下更新不會顯示，改成連上後關掉 backing store 並整張補畫一次。
+  · 記憶體用量約 74 MB（連線畫面 1280×720）～113 MB（1920×1080），跟著遠端桌面的解析度變。
+  · 翻譯 13 語（含這次新增的 70 句）。
+  · 建置環境（packaging/docker/Dockerfile.build、Dockerfile.rpm）加上 FreeRDP、libXcursor、libXfixes 的開發套件
+    （Ubuntu 用 freerdp3-dev，沒有的版本退回 freerdp2-dev；Fedora／Rocky 用 freerdp-devel）。
+- 新程式「文書處理器」（pomelo-writer，在啟動器裡）：開啟、編輯、存檔 Word（.docx）與 OpenDocument（.odt）文件，
+  雙擊這兩種檔案預設就用它開。文件模型、排版引擎、.docx／.odt 的讀寫全部自己寫（ZIP／XML 也是自己寫的最小實作），
+  不依賴 libxml2、Pango 或整套辦公軟體；只用系統本來就有的 zlib 做壓縮，畫面跟文字量測用 cairo。
+  · 編輯：輸入、刪除、復原重做；粗體／斜體／底線、字型、字級、顏色；段落對齊（左／中／右／左右對齊）、
+    項目符號與編號清單、簡單表格（可增減列與欄）。
+  · 檔案：開啟與另存為 .docx／.odt（存檔格式看檔名副檔名，副檔名跟下拉選單選的格式不一樣時用副檔名；
+    沒有副檔名才照下拉選單並自動補上）；啟動時可以直接帶檔名開（例如從檔案管理員點兩下）。
+  · 排版引擎自己寫：單趟貪婪斷行＋分頁（中日韓文字在任何字之後都可以斷行，不必等空白），清單用懸掛縮排，
+    表格整個放不進當頁就換頁（不會把表格從中間切開）。
+  · 跟真正的 LibreOffice 互相開檔測過：讀 LibreOffice 存的 .docx／.odt 都能正確顯示格式、清單、表格；
+    自己存的檔案拿給 LibreOffice 開也正確（包含 docx 轉存 odt 再讀回來的清單符號判斷，Word 轉存的清單常把
+    淺層用符號、深層用數字混在同一個清單樣式裡，要特別找第一層的設定才能判斷對）。
+  · 選單列、工具列（粗體斜體底線、對齊、清單、字型字級顏色）、剪貼簿（跟其他 Pomelo 程式共用的 CLIPBOARD）、
+    中日韓文輸入（XIM，可用 pomelo-input 或 fcitx5）都用 libpomelo 共用元件。
+  · 記憶體用量約 12 MB（一頁的文件），跟著頁數與圖片增加；復原紀錄最多約 50 MB。
+  · 翻譯 13 語（含這次新增的 32 句）。
+  · 建置環境（packaging/docker/Dockerfile.build、Dockerfile.rpm）加上 zlib 的開發套件。
+  · 目前不支援舊版二進位 .doc 格式（Word 97-2003），也還沒有拼字檢查、頁首、註腳、追蹤修訂。
+- pomelo-writer 再加（2026-10-21，使用者要「插入表格 圖片 然後要有標題 內文 大綱 頁碼 列印」）：文件模型加了圖片
+  （自己佔一整行，只認 PNG／JPEG，原始位元組整份存著、存檔不重新編碼）與段落樣式（內文／標題 1～3，標題自動變粗體、
+  變大字，工具列最左邊新增樣式下拉選單，「格式」選單也有）。
+  · 大綱面板：工具列與「插入」選單都有「大綱」開關，左邊列出文件裡所有標題（依層級縮排），點一下跳過去、反白目前所在的標題。
+  · 插入圖片：「插入」選單「圖片…」，選好的 PNG／JPEG 依像素換算成點（96 dpi），超過版面寬度會等比縮小；
+    圖片本身可以點選（反白外框）、Backspace／Delete 整張刪除、復原重做都支援。開啟 Word／LibreOffice 做的文件時，
+    裡面「整段只有一張圖」的圖片也認得出來並正確顯示（混在文字同一段的圖片目前會跳過，是已知限制）。
+  · 頁碼：「插入」選單打勾開關，頁尾正中央印頁碼；docx 用 footer1.xml 搭配 PAGE 欄位、odt 用 master-page 頁尾的
+    text:page-number，兩種格式互開都讀得出來。
+  · 列印：「檔案」選單「列印…」（Ctrl+P）選印表機、份數，跟 pomelo-pdf 同一招先排成暫存 PDF（cairo PDF surface）
+    再交給 lp，不用 xfreerdp 那類外部程式。
+  · docx 的標題樣式用具名的 Heading1／Heading2／Heading3（styles.xml 裡有定義），odt 用具名的 Heading_20_1 等
+    （ODF 把具名樣式名稱的空白編成 _20_）——一開始 odt 寫成每段自己的 automatic style，結果存成 odt 後再被
+    LibreOffice 轉成 docx 時全部掉回 Normal 樣式（LibreOffice 認得「具名的 Heading_20_N」才會在轉存時對應過去，
+    不會看 text:outline-level 本身），改成固定的三個具名樣式後 LibreOffice 雙向轉存都正確辨認。
+  · 圖片刪除要特別處理：選取範圍如果「起點」剛好是圖片本身，不能直接呼叫既有的 doc_delete_range（它的邏輯是
+    「兩端的段落留下來、把中間整段刪掉」，圖片沒有文字可以留，會變成刪掉錯的區塊），改成選取起點是圖片時
+    先單獨刪掉那個區塊、範圍再往後移一格，其餘部分才交給原本的函式處理；用 ASan 單元測試覆蓋「選取範圍橫跨一張圖片」
+    這個案例確認修好了。
+  · 測試：doc.c 新增 ASan 單元測試涵蓋圖片插入／複製／刪除與樣式；docx／odt 往返測試（含雙圖片、雙標題、頁碼）；
+    跟真正的 LibreOffice 雙向轉檔測過（docx→LibreOffice→odt、odt→LibreOffice→docx 都用自己的讀取器驗證過內容）；
+    Xvfb 互動測試涵蓋大綱面板點擊跳轉、圖片插入對話框、圖片選取刪除復原、頁碼開關、列印對話框（沒印表機時的訊息）。
+  · 翻譯 13 語新增 15 句（插入圖片、內文、標題 1～3、大綱…等；印表機、份數、列印…等字串跟 pomelo-pdf 共用，不用重翻）。
+  · 已知限制：圖片不能跟文字同一段混排；頁碼只能整份文件開關，不能自訂格式或位置；還沒有頁首。
+- pomelo-writer 再加二（2026-10-21，使用者說「檔案的開啟應該打開檔案管理 選擇檔案 列印上應該要有預覽列印 版面設定
+  編輯要有尋找取代 整體要有點像 Google 文件」）：
+  · 開啟檔案改成圖形化瀏覽（原本只能打路徑）：對話框上面是可以直接貼路徑按 Enter 的位置欄，下面是可以點兩下進資料夾、
+    點檔案就開啟的清單（「上一層」回上層），只列出資料夾跟 .docx／.odt 檔案；用 libpomelo 既有的 pm_ui_item 清單元件
+    （本來是給設定頁那種清單用的，拿來做檔案瀏覽剛好夠用，不用自己刻一整套視窗）。另存新檔還是打路徑（使用者只提到
+    「開啟」，存檔維持原樣，沒有跟著改）。
+  · 版面設定：「檔案」選單新增「版面設定…」，紙張大小（A4／US Letter／US Legal／自訂寬高，公分）、直向橫向、
+    上下左右邊界（公分）都能改，套用後文件立刻照新的版面重排。
+  · 列印預覽：「列印」對話框最上面先畫出目前頁面縮框（跟畫面編輯、存 PDF 共用同一個 layout_draw_page，等比例縮到約
+    260×300px），有好幾頁才顯示「◀ 1/3 ▶」換頁，確認版面跟內容都對了才選印表機、份數列印，不是盲目直接送印。
+  · 尋找與取代：「編輯」選單「尋找…」（Ctrl+F）、「取代…」（Ctrl+H）跳出對話框（不是像 pomelo-edit 那種常駐在上面的
+    搜尋列——使用者要的是「跳出對話窗」）；搜尋核心是在整份文件的可編輯單位（段落、表格儲存格，用既有的
+    doc_next_unit／doc_prev_unit 走訪，天然跳過圖片）之間找子字串，找不到就繞到文件另一端繼續找；「全部取代」另外寫了
+    一個「只往前找、不繞回」的版本，避免取代的文字剛好含有搜尋字串（例如把 cat 取代成 category）造成無窮迴圈。
+    開啟對話框時若已經有選取的文字，會自動帶進尋找欄。
+  · 修了一個順便發現的舊 bug（不只影響這次新加的對話框，所有 pomelo-writer 的小對話框都有）：輸入框（路徑／尋找…）
+    被點過＋留著輸入焦點時，按 Escape 原本會被 entry_impl 自己吃掉（變成「輸入框失焦」），對話框本身收不到 Escape、
+    關不掉——「尋找」這種「按鈕不會自動關閉對話框」的新介面才會真的卡住（舊的對話框按鈕都會呼叫 dlg_close，不靠
+    Escape 也關得掉，所以沒被發現）。改成 dlg_build 最前面先攔截 Escape 直接關閉，不管哪個元件有沒有輸入焦點。
+  · 測試：Xvfb 互動測試涵蓋檔案瀏覽（進資料夾、上一層、點檔案開啟）、尋找下一個／上一個（含繞回文件另一端）、
+    取代一個／全部取代（驗證存檔後內容正確、含圖片穿插在中間的情況）、版面設定套用（紙張改 US Letter 後存檔讀回驗證）、
+    列印預覽縮圖正確顯示文字與圖片。過程中一度誤以為「新文件」被意外觸發（xwininfo 讀到的視窗標題變成「未命名文件」），
+    重新確認文件內容其實沒有變、重複同樣操作也重現不了，判斷是 xwininfo 在對話框開著時讀主視窗標題屬性的時機問題，
+    不是真的程式 bug。
+  · 翻譯 13 語新增 16 句（版面設定、紙張大小、直向、橫向、上下左右邊界…等；尋找、取代、找下一個…等字串已經跟其他
+    Pomelo 程式共用，不用重翻）；順便拿掉開啟檔案舊版路徑輸入框用不到的一句翻譯。
+  · 手冊 12. 文書處理器章節補充這些功能的說明，新增兩張截圖（開啟檔案、列印預覽）。
+- 新程式「試算表」（pomelo-sheet，在啟動器裡，使用者說「我們也把試算表完成」）：開啟、編輯、存檔 Excel（.xlsx）與
+  OpenDocument（.ods）試算表，雙擊這兩種檔案預設就用它開。試算表模型、公式引擎、.xlsx／.ods 的讀寫全部自己寫，
+  不依賴 LibreOffice 或任何辦公軟體；ZIP／XML 剖析器直接從 pomelo-writer 搬過來（跟 .docx／.odt 用的是同一套格式）。
+  · 試算表模型：活頁簿（Workbook）裡多張工作表（Sheet），每張是列優先的儲存格陣列，欄寬列高可以個別設定（目前只有
+    預設值，還不能拖曳調整）；儲存格記型別（數字／文字／布林／錯誤）、公式、格式（粗體斜體底線、文字與背景顏色、
+    字型字級、對齊、百分比格式）。
+  · 公式引擎自己寫一個遞迴下降剖析器＋直譯器（不先建語法樹，邊剖析邊算），支援儲存格與範圍參照（含跨工作表
+    `工作表2!A1`）、四則運算、比較、字串串接（`&`），以及 SUM、AVERAGE、COUNT、COUNTA、MIN、MAX、IF、AND、OR、
+    NOT、ROUND、ABS、SQRT、POWER、MOD、INT、CONCATENATE、LEN、UPPER、LOWER、TRIM、TODAY、NOW、IFERROR、VLOOKUP、
+    SUMIF、COUNTIF、TRUE、FALSE 這些函式。重新計算用簡單暴力的作法：全部公式格重複算到收斂或偵測到循環參照為止
+    （不建相依關係圖），跟文書處理器「整份文件重排」的簡化哲學一致。
+  · .xlsx（OOXML SpreadsheetML）與 .ods（OpenDocument Spreadsheet）的讀寫都自己刻：共用字串表、樣式表
+    （字型／填色／儲存格格式）、工作表 XML 的讀寫都對應好；公式表示法要互相轉換——Excel 用 `A1`、`Sheet2!A1`，
+    ODF 用方括號的 `[.A1]`、`[.Sheet2.A1]`（可能帶 `$` 表示絕對參照），自己寫了雙向的轉換函式，順便發現並修掉
+    公式引擎的詞法分析器本來就會把 `$` 當空白跳過（等於已經兼容 Excel 的絕對參照語法，不用額外處理）。
+  · 畫面：欄列標頭、捲動、儲存格選取（單格或拖曳出矩形範圍、Shift＋點選擴大範圍）、雙擊或打字直接編輯（配合上方的
+    公式列同步顯示／編輯）、工作表分頁（切換、新增、重新命名、刪除）、插入刪除列欄、復原重做（活頁簿整份快照，
+    做法跟文書處理器的 Document 快照一樣）、剪貼簿（拷貝剪下貼上一個範圍，貼上的文字用 Tab／換行分欄分列，公式會
+    因為文字本身就是 `=...` 開頭而原封不動保留，格式不會保留）、開啟檔案用跟文書處理器同一招的圖形化瀏覽視窗
+    （過濾 .xlsx／.ods）、尋找（只在目前工作表內）。
+  · 修了兩個寫資料層時就發現的既有 bug：formula.c 函式呼叫的剖析分支少 free 掉一開始預設的 "#NAME?" 錯誤值，
+    每呼叫一次函式就漏一次記憶體（LeakSanitizer 抓到，漏的物件數剛好對上測試案例裡的函式呼叫次數）；sheet.c
+    新長出來的儲存格靠 calloc 補 0，但 0 剛好是文字顏色／背景色的合法 RGB 值（黑色），跟 xlsx.c／ods.c 預期的
+    「新儲存格預設是『自動』文字色、『無填滿』背景」的哨兵值對不上，會讓每一格打字後都變成黑底黑字——改成長出新
+    儲存格時明確設成哨兵值，不要依賴 calloc 的 0。另外 Save As 對話框的格式下拉選單一開始跟內部的 0／1 旗標對應
+    反了（選「Excel」結果存成 ODS），Xvfb 互動測試時發現畫面顯示的格式跟實際存檔格式不一致，順手修掉；「尋找」
+    對話框的「找下一個」按鈕一開始只設結果代碼、沒有直接呼叫搜尋函式（想說對話框關閉後再處理，但 pm_ui_run 的
+    事件迴圈要等對話框真的關掉才會返回，所以按鈕點了完全沒反應），改成跟文書處理器的尋找一樣直接在 dlg_build
+    裡呼叫搜尋函式。
+  · 測試：formula.c 用 ASan／LeakSanitizer 跑了涵蓋四則運算、字串、所有函式、儲存格與範圍參照、多層公式相依、
+    循環參照偵測的單元測試；跟真正的 LibreOffice Calc 雙向轉檔測過（pomelo-sheet 存的 .ods 用 soffice 轉成
+    .xlsx 再轉回 .ods，自己的讀取器驗證內容、格式、公式都正確；也讀過 LibreOffice 自己產生的 .ods，包含
+    LibreOffice 把布林值存成 `=TRUE()` 公式的情況，補上 TRUE／FALSE 函式）；Xvfb 互動測試涵蓋輸入數值與公式、
+    拖曳選取範圍、粗體背景顏色格式、復原重做、新增切換工作表、插入列、拷貝貼上、開啟檔案瀏覽、存成 .xlsx
+    與 .ods 並用 LibreOffice 驗證讀回內容正確。
+  · 翻譯 13 語新增 17 句（試算表、工作表、新增／重新命名／刪除工作表、文字顏色、背景顏色、無填滿、儲存失敗…等）。
+  · 已知限制：欄寬列高不能拖曳調整；儲存格編輯是單行輸入；插入刪除列欄時其他儲存格公式參照的位址不會自動調整；
+    剪貼簿跨應用程式貼上不保留格式；尋找只在目前工作表內；不支援凍結窗格、儲存格合併、樞紐分析表、圖表、
+    條件式格式、列印。
+  · 手冊新增 13. 試算表章節，新增一張截圖。
+- 新程式「簡報」（pomelo-slides，在啟動器裡，使用者說「因為還要做好簡報的功能」）：開啟、編輯、存檔 PowerPoint
+  （.pptx）與 OpenDocument（.odp）簡報，雙擊這兩種檔案預設就用它開。簡報模型、檔案格式讀寫全部自己寫，不依賴
+  LibreOffice 或任何辦公軟體；ZIP／XML 剖析器一樣從 pomelo-sheet／pomelo-writer 搬過來。
+  · 簡報模型：簡報（Presentation）裡多張投影片（Slide），每張投影片放文字方塊、矩形、橢圓、線條、圖片（Shape）；
+    座標用 pt、投影片預設 16:9（960×540pt，跟 PowerPoint 新版預設的 13.333×7.5 吋一樣）。文字方塊整個方塊套用
+    同一種格式（字型、字級、顏色、粗體斜體底線、對齊），不支援同一方塊內不同文字不同格式。
+  · .pptx（OOXML PresentationML）的讀寫是這次最難搞的格式：跟 .docx／.xlsx 不一樣，PowerPoint／Impress 對結構
+    完整性要求嚴格很多，缺母片（slideMaster）、版面配置（slideLayout）、佈景主題（theme）或關聯檔其中一項，
+    LibreOffice 就直接說「無法讀取來源檔案」打不開，所以寫了最小但結構合法的母片＋版面配置＋佈景主題（固定內容，
+    每份檔案共用同一套，不是每份都重新產生）。過程中用 ASan 寫資料層單元測試時就抓到一個堆疊緩衝區溢位：組合
+    每個 XML 區塊時用 `char full[2048]`固定大小堆疊緩衝區接 `xml_writer_finish()` 的輸出，snprintf 在內容超過
+    緩衝區時回傳的是「如果沒截斷本來要寫入的長度」而不是實際寫入的長度，用這個回傳值去讀緩衝區內容就會讀到緩衝區
+    外面——改成照內容實際長度動態配置。另外 xml_writer_new() 自己就會在最前面加一次 `<?xml …?>` 宣告，一開始又
+    手動在外層拼接時多加了一次，變成同一份 XML 開頭出現兩次宣告，LibreOffice 看到直接拒開——拿掉多餘那次。
+  · .odp（OpenDocument Presentation）的 LibreOffice 相容性也踩了兩個坑，都是用真正的 soffice 轉檔互通測試時
+    發現的：（1）LibreOffice 讀我們寫的 .odp 時，簡報整體大小一直被換成內建預設的 28×15.75cm，不管 styles.xml
+    裡的 `style:page-layout` 寫了什麼都沒用——逐步比對一份 LibreOffice 自己存的 .odp 的 styles.xml，發現差別是
+    我們沒寫 `<office:styles/>`（即使整個是空的）；LibreOffice 的 ODP 讀取器看來一定要看到這個元素才會真的採用
+    後面 `office:automatic-styles` 裡的頁面設定，少了就整個套用內建預設尺寸，加上去就正常了。（2）文字方塊的寬高
+    一開始設了也沒用，LibreOffice 把方塊自動縮到剛好貼合文字內容——補上 `draw:auto-grow-width="false"`、
+    `draw:auto-grow-height="false"`、`draw:fit-to-size="false"` 這三個圖形樣式屬性才會照給定的大小顯示。另外
+    LibreOffice 存正圓形（寬高相等的橢圓）時用的是 `draw:circle` 不是 `draw:ellipse`，讀取器一開始沒認得這個
+    標籤，讀自己存出去再被 LibreOffice 轉存一次的檔案時會少一個形狀，補上後正常。
+  · 還有一個純粹自己寫的邏輯 bug：`slide_add_shape()` 一開始不管物件種類都給外框顏色，文字方塊因此預設會有一圈
+    看起來像邊框的黑線——改成只有矩形／橢圓／線條預設有外框色，文字方塊跟圖片沒有。
+  · 畫面：左側投影片縮圖側欄（切換、拖曳排序）、「插入」選單加文字方塊／矩形／橢圓／線條／圖片、點選物件＋四角
+    控點拖曳調整大小／拖曳本體移動／方向鍵微調位置、雙擊文字方塊進去打字（直接改 Shape 的文字緩衝區，支援 Enter
+    換行多行文字）、工具列格式（粗體斜體底線、文字顏色、字型字級、對齊、外框顏色、填滿顏色）、投影片背景色、
+    新增投影片時選版面（標題投影片／標題＋內容／空白，各自預先放對應的文字方塊占位文字）、復原重做（簡報整份
+    快照，跟試算表、文書處理器同一招）、開啟存檔用同一套圖形化檔案瀏覽視窗、F5 全螢幕播放（方向鍵／空白鍵／
+    點一下換下一張，Esc 離開，用 `_NET_WM_STATE_FULLSCREEN` 跟視窗管理器要全螢幕）。
+  · 測試：slide.c 的簡報模型（新增刪除搬移投影片、複製物件、深層複製給復原重做用）跟 pptx.c／odp.c 的讀寫都用
+    ASan／UBSan 跑過自己寫自己讀的往返測試；跟真正 LibreOffice Impress 雙向轉檔測過（.pptx 轉 .odp 轉回 .pptx、
+    .odp 轉 .pptx 轉回 .odp，過程中讀回來的文字、顏色、形狀、圖片、投影片背景色都核對過，也讀過 LibreOffice
+    自己轉存的檔案）；Xvfb 互動測試涵蓋文字輸入與中日韓輸入法、粗體格式、物件選取拖曳搬移與調整大小、填滿顏色
+    對話框、新增投影片選版面、投影片拖曳排序、另存新檔（含路徑輸入框驗證，過程中發現 Ctrl+A 在輸入框裡會被忽略
+    不是全選、長路徑用 `xdotool type` 偶爾會掉字元，都是測試腳本本身的操作方式問題不是程式的 bug，換更簡單的
+    路徑跟校驗畫面內容後確認存檔功能本身沒問題）、F5 播放模式進入與離開。
+  · 翻譯 13 語新增 28 句（簡報、投影片、新增投影片、標題投影片、標題＋內容、外框顏色、填滿顏色、投影片背景色、
+    開始播放…等）。
+  · 已知限制：沒有母片／版面配置可以自訂、沒有動畫、轉場、備忘稿、表格、圖表；文字方塊只有一種格式套用在整個
+    方塊；形狀不能旋轉、不能群組；剪貼簿沒有實作，複製貼上物件要用「插入」選單重新加入；插入圖片只認得
+    PNG／JPEG。
+  · 手冊新增 14. 簡報章節，新增一張截圖；後面幾章（軟體與更新…授權與第三方元件）編號跟著往後移一號。
+- 簡報再加四項（2026-10-21，使用者說「簡報要有樣板 可以套版 還要可以預覽 播放 效果 備註」）：內建設計主題、
+  投影片轉場＋物件進場動畫、備忘稿＋雙螢幕簡報者模式、投影片總覽＋預覽播放。
+  · 「設計」選單新增 8 種內建配色＋字型組合（簡約白、經典藍、暗夜、活力橘、森綠、柔粉、深紫、商務灰），選一個
+    就把背景色、標題／內文顏色、字型一次套到整份簡報；套用後還是可以個別再調整，不是鎖住的樣式。
+  · 「格式」選單新增「投影片轉場…」（無／淡入淡出／橫向推入／擦除）跟「物件進場動畫…」（無／淡入／由左飛入／
+    由下飛入）；播放跟預覽播放時都會真的播出動畫，不是只存在檔案裡沒反應。
+    轉場跟物件動畫這次是整個 0.34 版裡 OOXML／ODF 相容性工程最吃功夫的一塊：
+    · .pptx 的 `<p:transition>` 直接照 OOXML schema 寫（`<p:fade/>`／`<p:push dir="l"/>`／`<p:wipe/>`），跟真正
+      LibreOffice Impress 互轉測過，轉場型別正確對應到 ODF 的 `smil:type`（fade／barWipe／pushWipe）。
+    · 物件進場動畫對應到 OOXML 的 `<p:timing>`——這是 OOXML 數一數二繞的結構（巢狀的 `p:par`／`p:cTn`／
+      `p:childTnLst`，用 `p:spTgt spid` 指定目標物件），抱著「寫不出合法結構寧可不存也不要存出壞檔案」的心理
+      準備動手，結果用最精簡但合法的巢狀骨架（固定 `delay="0"`，投影片出現就播，不做依點擊逐一觸發那一層
+      複雜度）一次就成功了：LibreOffice 不只正確接受，匯出成 .odp 時還正確轉成對應的 `<anim:transitionFilter>`
+      （`smil:type="fade"`／`"slideWipe"`），轉回 .pptx 後 `filter` 跟 `spid` 都還對得上原來的物件，双向都驗證過，
+      不需要退而求其次放棄存檔相容性。
+    · 同一套 `<anim:par>`／`<anim:transitionFilter>` 結構也直接實作在 .odp 這邊（物件要先有 `draw:id`／`xml:id`
+      才能被動畫參照），一樣雙向測過。
+    · 過程中發現並修了 odp.c 讀取器一個跟這次功能無關、但影響既有穩定性的既有缺口：LibreOffice 把從 .pptx
+      轉來的形狀（包括純文字方塊）存成 `draw:custom-shape`（帶 `draw:enhanced-geometry` 判斷矩形／橢圓），不是
+      我們讀取器原本認得的單純 `draw:rect`／`draw:ellipse`／`draw:frame`，導致讀「LibreOffice 轉存過的 .ods／.odp」
+      時整張投影片的形狀會憑空消失（這個洞在試算表 0.34 版就已經存在，這次做動畫互通測試才順便挖出來、一起修掉）。
+    · 播放動畫時還抓到一個真的程式 bug：原本任何一個 X11 事件（包括按鍵放開、滑鼠移動這種使用者沒感覺到的雜訊）
+      冒出來就會讓動畫迴圈提早中止，實際使用時動畫幾乎每次都會被瞬間截斷看不出效果；改成只有使用者真的按鍵或
+      點滑鼠才算「等不及了」要跳過動畫，其他事件先吃掉丟棄，不打斷播放。
+  · 「投影片」選單新增「顯示備忘稿欄」（畫面下方可以打字，每張投影片各自記錄，存檔會一起存進 .pptx／.odp）；
+    F5 播放時如果偵測到兩個以上螢幕（用 libpomelo 既有的 `pm_update_monitors()`／`mons[]`），自動開啟簡報者
+    模式：一個螢幕全螢幕給觀眾看投影片，另一個螢幕顯示目前／下一張縮圖、備忘稿、張數、經過時間；只有一個
+    螢幕時維持原本的單螢幕播放，不受影響。開發機只有單一螢幕，用 `xrandr --setmonitor` 切出兩個虛擬螢幕區域
+    測過雙螢幕路徑能正常開啟兩個視窗、正確顯示內容、Esc 離開後乾淨關掉簡報者視窗，沒有在真正的雙螢幕硬體上
+    測過。
+  · 「投影片」選單新增「投影片總覽」（縮圖總覽模式，點選、雙擊跳回編輯）跟「預覽播放…」（跟 F5 同一套播放
+    邏輯，但維持一般視窗大小，不整個螢幕）。
+  · 翻譯 13 語新增 25 句（設計、投影片轉場、物件進場動畫、淡入淡出、橫向推入、擦除、由左飛入、由下飛入、
+    投影片總覽、顯示備忘稿欄、預覽播放…、8 種主題名稱…等）。
+  · 已知限制：投影片總覽模式本身不能拖曳排序（排序要回編輯模式用左側縮圖側欄）；物件進場動畫播放時機固定是
+    投影片出現時全部一起播放，不支援依點擊順序逐一播放；簡報者模式的雙螢幕配置是自動決定，不能手動指定哪個
+    螢幕當觀眾畫面。
+  · 手冊 14. 簡報章節補充這些功能的說明，新增兩張截圖。
+
+0.33 更新（2026-10-15）：
+- 小柚可以用說的了：按泡泡輸入框右邊的麥克風，或按 Super+Shift+V，直接說「打開終端機」「音量調到 30」，
+  說完停一下就自動送出（也可以改成先放進輸入框再確認）。
+  · 完全在這台電腦上辨識（sherpa-onnx ＋ SenseVoice，第一次用時在設定下載約 264 MB），錄音辨識完就刪掉，不會傳到網路上。
+  · 支援國語、粵語、英文、日文、韓文；說國語會轉成繁體字（台灣、香港用字）。
+  · 聽成同音的別字時（「終端機」聽成「中斷劑」、「待辦」聽成「代班」），程式名稱、常用指令、文件裡的檔名會自動改回來；
+    英文的程式、網站名稱聽得不完整（「fifox」）也會改成 Firefox。
+  · 設定裡可以按「說說看」測試麥克風。
+- pomelo-assistant 多了 bzip2 這個相依（解開語音辨識程式用）。
+- 輸入法不只注音了，「系統設定 → 語言與輸入法」點一下就能啟用（還是不用 fcitx／ibus）：
+  · 拼音（簡體）、倉頡、速成、粵拼：用 Rime 引擎，第一次啟用時安裝引擎並下載字典（固定版本、檢查 SHA256；
+    拼音約 10 MB），第一次打字前要先花十幾秒整理字典。粵拼的候選字旁邊用小字標出讀音。
+  · 日文：打羅馬字，空白鍵轉換成漢字（Anthy）；可以分段調整，F7 轉片假名。
+  · 韓文：兩排式、三排式、羅馬字（libhangul）。
+  · 越南文：Telex、VNI，Pomelo 自己寫的，不必另外安裝。
+  · 可以同時啟用好幾個，Ctrl+Shift+空白鍵 輪流切換，選單列右邊顯示目前的輸入法（注、拼、倉、あ、한、V），點它也能選。
+  · 還沒自己選過時照介面語言啟用：簡體中文是拼音、香港是倉頡與速成，日文、韓文、越南文是各自的輸入法。
+  · Rocky 9 沒有 Rime 引擎，拼音、倉頡、速成、粵拼不能用。
+- Qt 程式（VLC、VirtualBox…）也能用 Pomelo 輸入法打字了：pomelo-input 也講 IBus 的協定，透過 Qt 內建的 IBus 外掛接上，
+  不必另外安裝 fcitx 或 ibus（Flatpak、Snap 版的程式還不行）。
+- 看圖（還有繪圖）可以打開 TIFF 與 SVG 了：TIFF 用系統的 libtiff（沒有的話畫面上有「安裝」按鈕），
+  SVG 用內建的 nanosvg（不用 librsvg，少裝 40 多個套件；SVG 裡的文字與濾鏡效果不會顯示）。
+- 注音的選字更好選：候選字開著時 ←→ 移動反白（到頭自動翻頁）、Enter 選反白的那個；滑鼠移過去會反白，點一下就選，
+  滾輪翻頁；右邊顯示頁數。
+- 韓文鍵盤的「한/영」鍵、日文鍵盤的「半角/全角」鍵可以切換輸入法／英文。
+- pomelo-language 多建議安裝 curl（下載輸入法字典用）。
+- 新的「繪圖」程式（pomelo-paint，在啟動器裡）：鉛筆、筆刷、噴槍、橡皮擦、油漆桶、取色、文字（可以打中文）、直線、箭頭、
+  矩形、圓角矩形、橢圓；選取範圍可以搬移、拉大縮小、拷貝、剪下、貼上（也能貼上截圖）、裁切；旋轉、翻轉、調整大小、
+  畫布大小、反轉色彩；復原／重做、縮放檢視。開 PNG、JPEG、GIF、WebP、BMP，存成 PNG、JPEG 或 BMP。
+  看圖的右鍵選單、截圖縮圖的右鍵選單都有「用繪圖編輯」，可以在截圖上加箭頭和文字；跟小柚說「打開小畫家」也可以。
+- 修正：小柚走過其他視窗時，那個視窗會閃、留下影子。
+  · Pomelo 的程式（選單列、Dock、設定、檔案、終端機、編輯器、看圖、影音、PDF、計算機、繪圖）都請 X 伺服器保留畫面，
+    小柚走過去時不用重畫。
+  · 瀏覽器這類別的程式沒辦法這樣做，小柚走路時改成繞開它們；站在它們上面時不晃動身體、不轉頭，要離開就用跑的。
+  · 小柚腳下不再有一塊會閃的深色影子，邊緣的雜點也少了；每一格的移動與形狀一次換好，形狀沒變（眨眼、天線發光）就不動形狀。
+- 修正：小柚想超過 30 秒的問題（例如模型剛啟動），答案一出來泡泡就自己收起來了；現在會留 30 秒讓你看。
+- 修正：設定改了之後（例如切換深色模式、存了新的設定），有些程式的文字會畫不出來或亂掉（字型名稱用到已經釋放的記憶體）。
+- 藍牙搜尋不再列出一大堆位址：附近不廣播名稱的裝置（手機的隨機位址、手環、電視…）收成一行「另外 N 個沒有名稱的裝置」，
+  點了才列出；有名稱的裝置顯示類型圖示（耳機、滑鼠、手機…）。
+- 檔案管理員可以拖放了（XDND，跟別的程式也能互拖）：
+  · 把檔案拖到資料夾、側邊欄、另一個檔案管理員視窗；同一個磁碟上是移動，到別的磁碟是拷貝，按住 Ctrl 一律拷貝；
+    拖到垃圾桶就是丟掉；從垃圾桶拖出來就是還原到那裡。游標旁跟著檔案圖示與數量，拷貝時有「＋」，不能放時有「⊘」。
+  · 拖著停在資料夾上一秒就打開它，停在清單上下邊緣會自動捲動，Esc 取消。
+  · 收別的程式拖來的檔案（例如瀏覽器的下載清單）；檔案也能拖到瀏覽器上傳。
+  · 看圖、繪圖、文字編輯器、PDF 閱讀器、影音播放器也收拖進來的檔案，直接打開；拖到終端機會打上路徑（有空白會加引號）。
+  · 選了好幾個時，按在其中一個上面可以整批拖走（放開沒拖才改成只選它）；停一下再點改名也改成放開時才判斷。
+- 修正：檔案管理員點了按鈕或按了鍵，畫面有時要等滑鼠再動一下才更新。
+- 檔案管理員的列表檢視在窄視窗會先收起「種類」、再收起「修改日期」欄，檔名不會被擠掉。
+- 外接螢幕：
+  · 登入中插上螢幕會自動亮起來：設定過的照記住的排列，沒設定過的用建議的解析度放在主要顯示器旁邊（右邊被佔了就放左、上、下）；
+    主要顯示器被拔掉時改用筆電的內建螢幕。以前要自己打開「顯示器」設定才會亮，記住的設定也只在登入時套用。
+  · 拔掉螢幕時，把留在那個螢幕上的視窗移回主要顯示器（以前可能跑到看不到的地方）；拔掉的輸出也會關掉，畫面不會留一塊空的。
+  · 每個螢幕都有選單列（傳統系統匣的圖示在主要顯示器那條）；在哪個螢幕的選單列點的，選單就開在那個螢幕。
+  · Dock 跟著滑鼠：把滑鼠移到別的螢幕最下面，Dock 就搬過去（自動隱藏時也一樣）。
+- 視窗陰影與動畫：「系統設定 → 外觀」多了「視窗陰影與動畫」，第一次打開時安裝 picom，之後視窗有柔和的圓角陰影，
+  開關視窗、選單會淡入淡出（選單列、Dock、小柚、拖曳中的圖示不加陰影）。設定在 /usr/share/pomelo/picom.conf，
+  可以複製到 ~/.config/pomelo/picom.conf 自己調；已經有別的合成器在跑就不會再開一個，關掉時只停 Pomelo 開的那個。
+  Rocky 9 沒有 picom 套件（EPEL 也沒有），那邊這個選項不能用。
+- 修正：視窗管理器沒事做的時候收到結束訊號（例如登出）不會馬上結束，要等到滑鼠動一下；pomelo -v 顯示正確的版本。
+- PDF 閱讀器可以填表單了：有欄位的 PDF 打開時欄位有淡藍色的框，點文字欄位直接打字（中文也行）、Tab 換下一個，
+  勾選框、圓形按鈕點了就切換，下拉選單與清單列出選項。字太多會自動換行、縮小，一格一字、字數限制也照表單的規定；
+  填的內容在別的 PDF 程式裡也看得到（NeedAppearances 的表單會先補好外觀，混合 XFA 的會拿掉 XFA）。可以復原，
+  簽過名的文件之後再填，簽章仍然有效。表單裡的 JavaScript 不會執行。
+- 選單列的系統匣支援新式的 StatusNotifierItem（AppIndicator）了：Telegram、Nextcloud、Slack、Discord、Steam、
+  各種 Ayatana AppIndicator 程式的圖示會出現在選單列右邊。左鍵打開程式（只有選單的就開選單）、右鍵開它的選單
+  （有勾選項目、子選單）、中鍵與滾輪也會傳給程式；程式要你注意時換成提醒的圖示，不需要時藏起來。
+  · pomelo-panel 在 session bus 上當 StatusNotifierWatcher；已經有別的（例如 snixembed）就交給它，免得圖示出現兩次。
+  · 選單列重新啟動後，已經在執行的程式圖示會自己找回來。
+- 圖示可以用 SVG 了（libpomelo 內嵌 nanosvg）：只有 SVG 圖示的程式（例如 hicolor/scalable 裡的）在 Dock、啟動器、
+  系統匣、檔案管理員裡不再是空白；也會找 symbolic、panel、actions、legacy 資料夾。
+- PDF 閱讀器的數位簽章可以用讀卡機上的憑證了（自然人憑證、工商憑證等智慧卡）：
+  · 「用憑證簽署…」按「讀取讀卡機」，卡片上的簽章憑證會列出來，輸入 PIN 碼就能簽；私密金鑰不離開卡片。
+  · 需要 pcscd 與卡片的 PKCS#11 模組（自然人憑證是內政部 HiCOS 元件，其他卡片多半是 opensc），Pomelo 會自己找，
+    也可以「指定模組…」；讀卡機有鍵盤的話在讀卡機上輸入 PIN。PIN 只剩最後一次時會提醒。
+  · 還沒有在實體的自然人憑證上測過（用模擬的卡片測試），遇到問題請回報。
+- 數位簽章可以加上時間戳記（RFC 3161）：勾「加上時間戳記」，向時間戳記伺服器證明簽署的時間（預設 DigiCert，可以改）；
+  只送出簽章的雜湊值。驗證時會檢查時間戳記是不是蓋在這個簽章上、有沒有被改過，正確的話用它的時間當簽署時間，
+  簽章內容裡顯示是哪個伺服器證明的。
+- 修正：PDF 上的註解（包括簽章的外觀）在某些檔案（例如瀏覽器存的 PDF）會畫得很小、跑到別的地方。
+- 終端機可以顯示彩色 emoji 了（用系統的彩色 emoji 字型，pomelo-terminal 多建議安裝 fonts-noto-color-emoji），
+  放大縮小字體時跟著縮放；一般字型都沒有的符號也會先找彩色字型，不再顯示成 �。
+
+0.32 更新（2026-10-06）：
+- PDF 閱讀器可以改頁面上原本的字、移除浮水印了（工具列的「編輯內容」，或「工具」選單）：
+  · 編輯文字：可以改的每一行字有淡淡的框，點一行就能改，清空就是刪掉；字型預設自動用最接近原本的
+    （明體、楷體、黑體，粗體也會跟著粗），也可以自己選黑體、明體、楷體與粗體。同一行後面的字跟著挪。改好的字可以選取、搜尋、拷貝。
+  · 加入文字：直接寫進頁面內容（跟註解的「文字」不同，可以選取、搜尋），可以選顏色、大小、字型與粗體，頁面轉過也是正的。
+  · 移除浮水印：列出可能是浮水印的東西（標成浮水印的內容、浮水印圖層與註解、每頁都有的斜放半透明大字或同一個圖案、頁首頁尾）
+    與出現在幾頁，看起來確定的已經勾好，確認後一次移除。
+  · 有密碼的檔案改完還是同一種加密；簽過數位簽章的文件改了內容，簽章會顯示「簽署之後內容被修改過」。
+- PDF 閱讀器修正（0.29 就有的問題）：帶透明度的群組與軟遮罩有時畫到別的地方或看不到，例如 LibreOffice 加的浮水印。
+- Pomelo 改用 GNU 通用公眾授權條款第 3 版或更新的版本（GPL-3.0-or-later）授權（之前沒有標示授權）：
+  原始碼附 LICENSE、每個檔案有授權標示，套件裡也附上授權；「系統設定 → 一般 → 關於」會顯示。
+
+0.31 更新（2026-09-27）：
+- PDF 閱讀器可以做數位簽章了（簽署與驗證都是 Pomelo 自己寫的，密碼學的部分用 OpenSSL）：
+  · 用數位識別碼（.p12／.pfx）簽署：可以自己建立識別碼，或匯入憑證機構發的。拖曳出簽名的位置，或點文件裡空白的簽章欄位；
+    外觀可以加上手寫簽名，寫原因與地點；簽好會馬上存檔，之後再加註解，簽章仍然有效。
+  · 打開有簽章的文件會自動驗證：上方的狀態列（綠／黃／紅）、側邊欄的「簽章」分頁、每個簽章的詳細內容
+    （文件簽署後有沒有被改過、簽署人的身分能不能確認、簽署時間、憑證）；可以「檢視簽署時的版本」、「信任這個憑證」。
+  · 我們簽的文件用 poppler 驗證都有效（含加密的文件）；竄改過的文件會顯示簽章無效。
+  · 整理頁面會讓簽章失效，所以會把原本的簽章拿掉，並提醒可以復原。
+- PDF 閱讀器修正：存檔後分頁名稱有時會變成空白；有幾個圓形圖示旁邊會多畫一條線。
+
+0.30 更新（2026-09-18）：
+- PDF 閱讀器可以修改 PDF 了（寫檔也是 Pomelo 自己寫的）：
+  · 註解：螢光筆、底線、刪除線、便利貼、文字、畫筆、方框、橢圓、直線、箭頭，可以選顏色與粗細；
+    點選註解可以拖曳、改大小、刪除，便利貼與文字可以按兩下修改。
+  · 填寫與簽名：用滑鼠簽名，或用簽名的照片（白色背景自動去掉）；存好的簽名點一下就能放到頁面上，可以拖曳、縮放。
+  · 整理頁面：所有頁面的縮圖，可以旋轉、刪除、拖曳調整順序、擷取成新文件、插入其他 PDF 或空白頁。
+  · 合併檔案：好幾個 PDF 照順序合併成一份，每個檔案在書籤裡一項。
+  · 加上頁碼：六種格式（例如「第 1 頁，共 9 頁」）、六個位置、可以從第幾頁開始編號。
+  · 儲存（Ctrl+S）、另存新檔（Ctrl+Shift+S）、復原（Ctrl+Z）、重做（Ctrl+Shift+Z）；還沒存就關掉會先問。
+    註解、頁碼是接在原本的檔案後面存（原本的內容不動），有密碼的檔案存完還是同一個密碼；
+    作者限制修改的文件可以輸入擁有者密碼解除。改過還沒存的文件，列印時印的是改過的樣子。
+  · 存出來的檔案都用 qpdf 檢查過，其他 PDF 閱讀器看得到一樣的註解、簽名與頁碼。
+- PDF 閱讀器修正（兩個都是 0.29 就有的問題）：
+  · 某些故意弄壞的 PDF（字型裡又用到自己）會讓程式越吃越多記憶體、停不下來；現在會擋住，而且每頁畫的東西有上限。
+  · 故意弄壞的 AES-256 加密 PDF 會讓程式寫出陣列範圍（可能當掉），已修正。
+- 0.29 的設計文件說模糊測試「之後沒有再出現」問題，其實那時用來確認的測試沒有跑起來；這一版重跑後找到上面兩個問題並修好。
+
+0.29 更新（2026-09-07）：
+- 新程式「PDF 閱讀器」（pomelo-pdf）：PDF 核心是 Pomelo 自己寫的，不用現成的 PDF 函式庫。
+  · 左邊是頁面縮圖與書籤，上面有頁碼、縮放（符合寬度／符合頁面／實際大小）、旋轉、搜尋；頁面連續捲動，可以開好幾個分頁。
+  · 搜尋：符合的地方標成黃色、目前這一個是橘色，顯示第幾個／共幾個。拖曳選取文字、雙擊選詞、三擊選行，Ctrl+C 拷貝。
+  · 有密碼的 PDF（RC4、AES-128、AES-256）、作者限制列印或拷貝的文件都支援；交叉參照表壞掉的檔案會自動修復後顯示。
+  · 中文：沒內嵌字型的公文（新細明體、標楷體）會改用系統的 Noto CJK；直書、Big5 編碼的字型名稱也可以。
+  · 表單欄位與註解（螢光筆、手寫、方塊）照文件裡的外觀顯示；掃描檔的 CCITT、JPEG 2000、JBIG2 圖片都能看。
+  · 列印（Ctrl+P，需要 CUPS）、文件內容（Ctrl+D）、全螢幕（F11）、深色模式；下次打開會回到上次看的那一頁。
+  · 從檔案管理員再打開別的 PDF，會變成同一個視窗的新分頁；Pomelo 桌面上的 PDF 預設用它開。
+  · 目前只能閱讀；整理頁面、合併、加頁碼、簽名、數位簽章會在之後的版本加上。
+- 小柚：可以說「打開 PDF 閱讀器」。
+
+0.28 更新（2026-08-25）：
+- 小柚：
+  · 可以關閉、切換、縮小程式：「關閉終端機」「把瀏覽器關掉」「切換到 Firefox」「把計算機縮到最小」（快速指令，不用等模型）。
+    同一個程式開了好幾個視窗會一起關；沒開著會直接說「目前沒有開著的終端機視窗」。
+  · 打招呼、「你是誰」「你是哪個模型」「你會做什麼」「謝謝」「再見」這類日常對話直接回答，不用等模型；
+    「你是哪個模型」會照實回答目前用的 Qwen3-VL 2B 或 4B。
+  · 可以在文字檔最後面加字：「在 待辦.txt 最後面加上 買牛奶」「把『繳電話費』加到待辦的最後面」「在這個檔案最後面加上…」；
+    只說「在 a 文件底下增加文字」的話會先問你要加什麼。加之前會跳出確認視窗（顯示檔案與要加的文字）；
+    只改純文字檔（Word、PDF、Big5 編碼的檔案會說明原因），檔案在文字編輯器裡還沒儲存時會請你先儲存。
+  · 「開啟 a 文件」「打開 待辦.txt」會直接在文件、桌面、下載裡找到並打開。
+  · 修正：關掉「桌面上的小柚」、改用對話視窗時，確認視窗會被對話視窗擋住，而且按「取消」也會照樣執行（建立、複製、移動、丟垃圾桶都受影響）；
+    Wi-Fi、藍牙、複製失敗時也不會回報失敗。
+  · 修正：確認視窗的路徑太長時看不到檔名（家目錄改顯示成 ~）。
+  · 標準模型（4B）比較不會在你只是說「好累」「好無聊」時自己去設提醒、開網站或關視窗。
+- 文字編輯器：檔案被別的程式改了（例如小柚加的字）會自動重新載入，Ctrl+Z 可以回到之前的內容；
+  這裡也有沒儲存的修改時，會提醒你「儲存會蓋掉別處的修改」。
+
+0.27 更新（2026-08-14）：
+- 文字編輯器大改版：
+  · 選單列（檔案／編輯／檢視），選單上有快捷鍵，用不到的項目是灰色。
+  · 多個分頁；從檔案管理員打開的文字檔會加到同一個視窗（要另開視窗用「新視窗」）。
+  · 左邊的檔案清單（資料夾樹），點一下就打開，右鍵可以新增檔案；可以隱藏、拖曳調寬度。
+  · 尋找與取代：標出所有符合的地方、「第 3／10 個」、區分大小寫、取代、全部取代；跳到第幾行。
+  · 行號、目前這一行淡淡的底色、可以關掉自動換行（長的行會水平捲動）、等寬字型、自動縮排。
+  · Big5（簡體中文介面是 GB18030）的舊文字檔會自動轉碼，存檔時照樣存回原本的編碼；Windows 換行的檔案照樣存成 CRLF。
+- 新程式「計算機」（pomelo-calc）：
+  · 基本模式與工程模式（括號、次方、根號、三角函數、對數、階乘、π、e；角度／弧度）。
+  · 可以直接用鍵盤打整個算式，邊打邊顯示結果；200+10% 算成 220。
+  · 計算紀錄（點一筆就拿來用）、Ctrl+C 拷貝結果、Ctrl+V 貼上算式。0.1+0.2 會正確顯示 0.3。
+- 新程式「看圖」（pomelo-viewer）：
+  · PNG、JPEG、GIF 與 WebP（包括動畫）、BMP、PNM。手機拍的直向照片自動轉正。
+  · ←／→ 看同一個資料夾的其他圖片（下一張會先在背景準備好）；滾輪縮放、拖曳、旋轉、全螢幕、幻燈片。
+  · 丟到垃圾桶（Ctrl+Z 復原）、拷貝圖片、設為桌布、照片資訊（拍攝時間、相機型號、光圈快門 ISO）。
+  · 5000 萬像素以上的大照片也能開（會自動縮小解碼）。
+  · iPhone 的 HEIC 照片與 AVIF：第一次打開時按「安裝」裝上 libheif 就能看
+    （Fedora／Rocky 官方沒有 HEVC 解碼器，HEIC 要用 RPM Fusion 的 libheif-freeworld）。
+- 新程式「影音播放器」（pomelo-player）：
+  · MP3、FLAC、Ogg、Opus、WAV 不用另外裝東西；M4A／AAC 與影片第一次播放時會問要不要安裝 ffmpeg。
+  · 播放清單、隨機、重複（整個清單／這一首）、拖動進度、音量；顯示專輯封面（內嵌的或資料夾裡的 cover.jpg）、歌名、歌手。
+  · 舊 MP3 用 Big5 存的歌名（以前會變成亂碼）會自動轉成正確的中文。
+  · 影片：全螢幕、字幕（同名的 .srt 檔，或 MKV／MP4 內嵌的文字字幕；Big5 的也可以；V 切換），播影片時不會自動鎖定螢幕。
+    畫面解不出來的影片（例如 Fedora 的 ffmpeg-free 不能播 HEVC）會在畫面上說明原因與解決方法。
+  · 音樂庫：自動整理「音樂」資料夾，依歌曲、歌手、專輯瀏覽，播放全部或加到播放清單。
+  · 同時只開一個視窗，從檔案管理員再打開的檔案會交給它；關掉再打開會接著上次的清單與位置。
+  · 頂端選單列會出現播放中的音符，點一下可以暫停、換歌；鍵盤的播放／暫停、上一首、下一首鍵也能用。
+- 各程式的右鍵選單：右邊會顯示快捷鍵，暫時不能用的項目是灰色，太靠近螢幕下緣時會往上移。
+- 檔案管理員：雙擊照片用「看圖」、雙擊音樂或影片用「影音播放器」打開；右鍵多了「用影音播放器播放」（選取的檔案或整個資料夾），
+  在空白處按右鍵有「播放這個資料夾的音樂與影片」。
+- 小柚：可以說「打開計算機」「開看圖」「播放音樂」「暫停一下」「下一首」「上一首」「停止播放」（快速指令，不用等模型）。
+- 鍵盤上的計算機鍵會打開計算機。
+- 圖片載入（桌布、檔案管理員縮圖、登入畫面背景也受惠）：手機照片依 EXIF 自動轉正、支援 CMYK 的 JPEG、
+  超過 4000 萬像素的照片會縮小解碼而不是打不開。
+
+0.26 更新（2026-08-02）：
+- 新的安裝包：除了 Ubuntu 24.04，另外有 Ubuntu 22.04、Ubuntu 26.04、Fedora 44、Rocky Linux 9.6
+  （也適用 AlmaLinux 9、RHEL 9），每個安裝包都附有該發行版的使用手冊（有截圖，.md 與可以直接用瀏覽器打開的 .html）。
+- 軟體中心、系統更新、儲存空間清理、語言、輸入法與錄影的安裝，會自動配合 apt（Ubuntu）或 dnf（Fedora、Rocky）；
+  提示裡的安裝指令也會顯示這台電腦用的那一個。
+- Fedora／Rocky：登入畫面與螢幕鎖定使用 Red Hat 系的 PAM 設定；Pomelo 登入畫面會設定 SELinux 標籤；
+  pomelo-dm-switch 認得 Fedora／Rocky 的 GDM；Rocky 上注音輸入法自帶需要的 xcb-imdkit。
+- 套件版本改成帶發行版的格式（例如 0.26+ubuntu24.04、0.26-1.fc44），升級 Ubuntu 之後裝新版的套件可以直接更新。
+- 修正：用 ~/.local/share/applications 裡只寫了 NoDisplay=true 或 Hidden=true 的檔案隱藏系統程式時，搜尋和啟動器還是會列出它。
+- 修正：Pomelo 登入畫面在比較矮的螢幕（例如 1280×800）上，下方的訊息會蓋住密碼欄；放不下時改放在時鐘下方。
+- 修正：小柚剛啟動的那一瞬間連續叫兩次，可能會多開一個模型程式（多佔一份記憶體）。
+
+0.25 更新（2026-07-21）：
+- 小柚變快了：
+  · 快速指令：常用的說法直接做，不用等模型（不到 0.1 秒）。例如：
+      打開終端機、開啟 Firefox、開瀏覽器並連到 Yahoo、上 PTT、幫我開 www.cwa.gov.tw、
+      打開文件裡的報價單（找到好幾份會列出來，點一下或說「第 2 個」）、打開下載資料夾、
+      音量調到三十、大聲一點、螢幕調暗一點、靜音、開深色模式、藍牙打開、關掉 Wi-Fi、
+      鎖定螢幕、10 分鐘後提醒我休息、現在幾點、今天星期幾、台北天氣、電量還剩多少、打開藍牙設定。
+    說法對不上的（例如「打開上次那個檔案」「螢幕太亮了」），才交給模型想。
+    模型還沒下載時，快速指令照樣能用。可以在小幫手設定裡關掉。
+  · 交給模型的動作也比較快：開程式、開網址這類動作做成功了就直接回報，不再多跑一次模型（大約省一半時間）；
+    做失敗（例如找不到程式）才再問模型，讓它解釋或換個方法。
+
+0.24 更新（2026-07-13）：
+- 修正：選單列（pomelo-panel）在改設定時偶爾會當掉，跳出「pomelo-panel 發生錯誤」的回報視窗
+  （例如切換「自動隱藏 Dock」、改 Dock 釘選的程式、編輯應用程式選單之後）。
+  原因是 Dock 重新載入圖示後，畫面還拿著舊圖示去畫；0.22、0.23 都有這個問題，請直接更新到 0.24。
+
+0.23 更新（2026-06-28）：
+- 左上角的 Pomelo 選單可以編輯：「系統設定 → 選單列」，或在左上角的圖示上按右鍵「編輯選單…」。
+  · 可以加入程式、自己的指令（例如 xdg-open https://www.cwa.gov.tw 打開氣象署網站，或執行自己的腳本）、
+    內建項目（關於、系統設定、鎖定螢幕、睡眠、關機…）與分隔線。
+  · 每一項都可以改名稱、上移／下移、移除；「還原」回到原本的選單。改完下次點開選單就生效。
+  · 設定存在 ~/.config/pomelo/menu.conf。
+- 修正：設定視窗按下按鈕後，畫面有時要等滑鼠再動一下才更新（例如從清單點進下一頁時停在半截）。
+
+0.22 更新（2026-06-19）：
+- 視窗的縮小、放大、關閉按鈕改放在右上角（由左到右：縮小、放大、關閉），樣式不變。
+  想放回左邊：「系統設定 → 外觀 → 視窗按鈕的位置」選「左邊」，馬上生效。
+- 為了避免商標問題，介面上不再使用 Apple 的產品名稱：
+  · Spotlight 改叫「搜尋」（快速鍵一樣是 Super+空白鍵）
+  · 啟動台改叫「啟動器」（快速鍵一樣是 Super+A）
+  · 套件說明與「關於」裡不再寫「macOS 風格」
+  設定檔裡的名稱沒有變，原本的設定都保留。
+
+0.21 更新（2026-06-05）：
+- 應用程式選單可以編輯：「系統設定 → 應用程式選單」，或在啟動器的圖示上按右鍵「編輯…」。
+  · 可以改名稱、說明、指令、圖示、分類，從啟動器與搜尋隱藏，或「新增…」自己的程式或指令
+    （例如一個打開某個網站的項目）。
+  · 修改存在自己的 ~/.local/share/applications，不影響其他使用者；「還原」就回到安裝時的樣子。
+    Dock、啟動器、搜尋會立刻更新。
+- 登入畫面可以設定：「系統設定 → 登入畫面」（需要 pomelo-dm 0.21）。
+  · 背景（每個人自己的桌布／指定一張圖片／漸層）、時鐘（24 小時制／12 小時制／不顯示）、文字大小、
+    登入方式（使用者清單／輸入名稱與密碼）、「其他使用者」、不顯示的帳號、自動登入、
+    登入畫面下方的訊息（例如「撿到請聯絡 09xx」）、睡眠／重新開機／關機按鈕。
+  · 「預覽」可以先看樣子（按 Esc 離開）；「套用」要輸入管理員密碼，下次出現登入畫面時生效。
+- 小幫手改名「小柚」（英文等介面叫 Pomi）。在小幫手設定裡：
+  · 樣式：六種配色（經典白、柚子黃、薄荷綠、櫻花粉、天空藍、太空黑），每種都有深色版；
+    外觀可選「跟系統」（系統切到深色模式時自動換成深色的小柚）、淺色、深色；眼睛顏色可以自己挑。
+  · 聲音：音效（叫牠、回答好了、抱起來、放下時；三種音色、可調音量），音效是程式即時合成的，不需要音效檔。
+  · 把回答念出來（預設關閉）：第一次開啟時按「下載」，下載約 90 MB 的離線語音（Piper），之後完全離線。
+    可以選嗓音（小柚高音／普通／低沉）與語速。中文聲音是大陸口音的女聲；日文、泰文目前沒有可用的離線語音。
+- 修正：系統設定裡需要輸入管理員密碼的動作（時區、主機名稱、使用者…）做完後，狀態一直停在「執行中」。
+- 修正：設定頁的開關、按鈕旁邊的說明文字太早被截斷（外文介面特別明顯）。
+- 13 種語言都已補上新增的文字（AI 翻譯，尚未經母語者審閱）。
+
+0.20 更新（2026-05-28）：
+- Pomelo 登入畫面：登入後桌面出現得更快。0.19 在登入後 X 還會被短命的小程式觸發重設好幾次（每次畫面清空約 0.5 秒），
+  現在工作階段期間由 pomelo-dm 保持一條連線，X 不再重設（跟 GDM 的 -noreset 效果一樣）。
+
+0.19 更新（2026-05-21）：
+- Pomelo 登入畫面：登入後不再黑屏卡幾秒（不重開 X，改用 X 自己的重設換新 cookie；安全性不變）。
+- 修正：輸入法（注音）結束或重新啟動時，文字編輯器、終端機等會當掉（每次登入跳出「回報」的錯誤視窗就是這個）。
+  現在輸入法消失會自動停用、回來時自動重新連上。
+- 「關於 Pomelo」改成放在螢幕正中間的小視窗：機型、處理器、顯示卡、記憶體、磁碟、
+  作業系統、核心、Pomelo 版本，「更多資訊…」開系統設定的完整資訊。
+- 網路設定可以設定了：點網路卡進去可以改 IPv4（DHCP／手動 IP、子網路遮罩、路由器）、DNS、搜尋網域、IPv6、
+  自動連線，Wi-Fi 可以「忘記這個網路」、加入隱藏網路；docker 等虛擬介面預設隱藏。
+  套用後 30 秒內沒有按「保留」會自動還原（設錯、遠端連不上時不會被鎖在外面）；中斷連線會再確認一次。
+
+0.18 更新（2026-05-16）：
+- 螢幕截圖與錄影（pomelo-screenshot），操作方式：
+  · Super+Shift+3（或 Print）：整個螢幕；Super+Shift+4（或 Shift+Print）：拖曳選取範圍，按空白鍵改成點選視窗；
+    Alt+Print：目前的視窗；加按 Ctrl：只拷貝到剪貼簿（可以直接貼到聊天軟體）。
+  · Super+Shift+5：工具列（整個螢幕、視窗、選取範圍、錄製整個螢幕、錄製選取範圍、選項：儲存位置、倒數、
+    麥克風、電腦的聲音、滑鼠游標、快門聲）。
+  · 截圖存到「圖片」，錄影存成 MP4 到「影片」；右下角出現縮圖，點一下開啟，右鍵可以拷貝、刪除。
+  · 錄影中選單列會顯示紅色計時，點它（或 Super+Ctrl+Esc）停止。
+  · 錄影需要 ffmpeg：第一次錄影時會詢問是否安裝（約 30 個套件，不需要 GNOME）；截圖不需要。
+
+0.17 更新（2026-05-08）：
+- 新的 Pomelo 登入畫面（pomelo-dm ＋ pomelo-greeter，選用）：（大時鐘、頭像、密碼框、
+  睡眠／重新開機／關機、背景是你的桌布），取代 GDM／LightDM；常駐只要約 2 MB，不需要 GLib、D-Bus。
+  裝了之後不會自動換掉原本的登入畫面：
+    sudo pomelo-dm-switch try    先試用（Ctrl+Alt+F7；Ctrl+Alt+F1 回原本的），不改任何設定
+    sudo pomelo-dm-switch on     確定沒問題後，之後開機都用它
+    sudo pomelo-dm-switch off    換回原本的
+  萬一登不進去：按 Ctrl+Alt+F3 用文字登入，執行 sudo pomelo-dm-switch off，再 sudo reboot。
+  設定：/etc/pomelo/dm.conf（自動登入、隱藏帳號…）。設計與安全說明：登入管理員.md。
+  這是第一版，只在測試模式驗證過，請先用 try 試。
+
+0.16 更新（2026-04-30）：
+- 小幫手新增：複製、移動／重新命名、丟垃圾桶（都會先跳確認視窗，不覆蓋、不真的刪除）、查天氣（get_weather）。
+- 修正：小幫手用瀏覽器搜尋後會亂編答案；現在只會說「已幫你搜尋」。
+
+0.15 更新（2026-04-19）：
+- 小幫手（柚子）不再只會「開」：可以直接開網址、建立資料夾、建立文字檔並寫入內容。
+  建立檔案前會先跳出確認視窗，只能在家目錄與外接裝置、不會覆蓋已有的檔案、不碰隱藏檔。
+  設計與限制：AI小幫手.md。輕量（2B）模型選工具的準確度較低，建議記憶體夠的電腦用標準（4B）。
+
+0.14 更新（2026-04-11）：
+- 多國語系：除了繁體中文與英文，新增簡體中文、日文、韓文、法文、德文、西班牙文、義大利文、
+  巴西葡萄牙文、俄文、越南文、泰文、印尼文（在「語言與輸入法」選語言，重新登入後生效）。
+  除簡體中文是由繁體轉換並人工修正外，其他語言為 AI 翻譯，尚未經母語者審閱，歡迎回報用詞問題。
+  泰文、越南文、俄文需要系統有對應字型。
+- 選單列的「注／英」改為點擊彈出選單：顯示輸入法與 libchewing 版本、切換中／英、輸入法設定…
+  （pomelo-input --version 也能印出版本）。
+- 修正：桌面上的柚子對話框打不出中文。
+
+0.13 更新（2026-04-03）：
+- 新增 Pomelo 自己的注音輸入法（pomelo-input）：新酷音引擎（libchewing）＋ 自己畫的選字列，
+  只多裝 5 個套件約 4 MB（fcitx5 要 49 個、37 MB；ibus 要 79 個、235 MB），常駐記憶體約 6 MB。
+  · 有裝 pomelo-input 時登入後自動啟用，不用再裝 fcitx5／ibus；之前裝過的可以留著，
+    在「系統設定 → 語言與輸入法 → 輸入法框架」選要用哪一個。
+  · 操作：Shift 輕點或 Ctrl+空白鍵 切換中／英（選單列右側會顯示「注／英」，點它也能切換）、
+    Shift+空白鍵 全形／半形、空白鍵或 ↓ 開候選字、1–9 選字、Enter 送出、Esc 清除、Ctrl+數字 加詞。
+  · 設定頁可以選注音鍵盤（標準、許氏、倚天、拼音…）、空白鍵選字、每頁候選字數。
+  · Pomelo 的程式與 GTK 程式（Firefox、Chrome、VS Code、LibreOffice）都能打；
+    Qt 程式（VLC、VirtualBox）不支援這種輸入法，要在那些程式打中文請改用 Fcitx 5。
+
+0.12 更新（2026-03-22）：
+- 小幫手「柚子」變成桌面上的 3D Q 版小機器人（pomelo-assistant）：
+  · 啟動後不再是對話視窗，而是一隻在桌面上自由走動的小機器人：會挑地方走過去、停一下看看四周、
+    眨眼，滑鼠靠近會看著游標；全部用自己寫的純軟體 3D 繪製，不需要顯示卡，CPU 不到 1%。
+  · 只有在喊牠的時候才會停下來：點牠、按 Super+Shift+Space、搜尋的「問小幫手」，
+    或指令列 pomelo-assistant 問題。停下來會面向你、頭上出現對話泡泡（可以用輸入法打中文），
+    思考時眼睛往上看、天線閃爍，回答一個字一個字出現，講完露出笑臉。
+  · 按 Esc、再點牠一下、或 30 秒沒理牠，泡泡收起來，牠就繼續去走動。
+  · 拖曳可以把牠搬到別的地方（會舉起手），右鍵選單：跟柚子說話／停下來／設定／回去休息。
+  · 系統設定 → 小幫手：可以關掉（改回一般對話視窗）、登入時自動出現、自由走動、大小（小／中／大）。
+    模型已下載時，登入後會自動出現；還沒下載的話先到設定按「下載」。
+  · 全螢幕看影片時牠會自動讓開；形狀以外的地方點下去會穿透，不會擋到底下的視窗。
+  · 細節與設計：AI小幫手.md「桌面上的柚子」。
+
+0.11 更新（2026-03-18）：
+- 新增「文字編輯器」(pomelo-edit)：簡單的純文字編輯器，啟動器裡叫「文字編輯器」。
+  · 自動換行、中英文混排、滑鼠選取（雙擊選字、三擊選行）、拖曳、滾輪。
+  · 快速鍵（Ctrl 或 Super 都可以）：S 儲存、Shift+S 另存、O 開啟、N 新視窗、Z 復原、Shift+Z／Y 重做、
+    A 全選、C／X／V 複製剪下貼上、F 尋找、G 找下一個、W／Q 關閉（有未存檔會先問）、+／− 字級。
+  · 與其他程式互通剪貼簿；也接受輸入法（fcitx5／ibus）。
+  · 深色模式跟著系統設定。
+  · .txt、.md、.csv、.log、.json、.sh、.py、.c 等純文字檔，以及剛建立的空檔案，預設都用它開啟
+    （裝在 /usr/share/applications/pomelo-mimeapps.list；如果你自己在 ~/.config/mimeapps.list
+    設過別的程式，仍以你的設定為準）。
+- 檔案管理員右鍵選單新增「新增文件」：在目前資料夾建立「未命名.txt」並直接進入重新命名，
+  按 Enter 或雙擊就用文字編輯器開啟。
+- 檔案管理員：建議安裝 pomelo-edit；pomelo-desktop 中繼套件已包含。
+
+0.10 更新（2026-03-09）：
+- 新增「鑰匙圈」(pomelo-keyring)：幫 Chrome、VS Code 等程式保管密碼，取代 gnome-keyring，不需要 GNOME。
+  · 實作標準的 Secret Service，程式不用改；Chrome 會自動用它存網站密碼和加密金鑰。
+  · 整個檔案（含網站網址等屬性）都用登入密碼加密；gnome-keyring 只加密密碼本身。
+  · 登入時自動解鎖（PAM 模組，安裝時會自動加進 PAM 設定）；用 startx 進桌面或改過登入密碼時，
+    第一次要用會跳出解鎖視窗。
+  · 系統設定 → 密碼與鑰匙圈：查看儲存的項目、刪除、鎖定、變更鑰匙圈密碼。
+  · 還沒在真的 Chrome／VS Code 上測過，請在實機上確認；設計與測試記錄在 鑰匙圈.md。
+  · 如果之前裝過 gnome-keyring，兩個會搶同一個服務名稱：請用 清理GNOME套件.sh 移除，或登出再登入
+    （pomelo-session 會優先啟動 pomelo-keyring）。
+- 新增「小幫手」(pomelo-assistant)：在這台電腦上執行的 AI，不會把資料傳到網路上。
+  · 叫出：Super+Shift+Space，或在搜尋打完問題選「問小幫手」，或啟動器的「小幫手」。
+  · 會做：開程式、切換／關閉視窗、找檔案、音量／亮度／深色模式／勿擾／Wi-Fi／藍牙、鎖定螢幕、
+    開設定頁、查磁碟記憶體電量、幾分鐘後提醒、用瀏覽器搜尋；也可以問問題、問「我現在在用什麼」。
+  · 第一次使用要下載模型（輕量版約 1.1 GB；記憶體 12 GB 以上預設標準版約 2.5 GB），
+    在「系統設定 → 小幫手」或第一次開啟時按「下載」。需要 curl。
+  · 模型只在用到時載入（約 1.3 GB 記憶體），閒置 10 分鐘自動卸載。
+  · 一般 4 核心電腦：載入約 8 秒（開視窗時在背景做），之後每個指令約 1～3 秒。
+  · 輕量版偶爾會「只說不做」（約三成的間接要求，例如「螢幕太亮了」）；8 GB 以上建議試標準版。
+
+0.9 更新（2026-03-01）：Dock Ctrl／Shift＋點擊、選單列「新視窗」可以多開視窗
+- 終端機分頁：Ctrl+Shift+T（或 Super+T）開新分頁、Ctrl+Shift+W 關閉、Ctrl+Tab／Ctrl+PageUp／PageDown
+  切換、Super+1～9 跳到第幾個；分頁列上可以點「＋」「×」、中鍵關閉、滾輪切換。
+  只有一個分頁時不顯示分頁列。
+- 系統設定新增「視訊」：攝影機清單、即時預覽、亮度／對比／飽和度／銳利度／自動白平衡（登入時自動套用）、
+  正在使用攝影機的程式、整個系統停用攝影機的開關。
+
+0.8 更新（2026-02-22）：
+- 不再帶進 GNOME 套件（pomelo-polkit 密碼視窗、輸入法改成用到時才裝）
+- 修正清理腳本：不再連帶移除 gdm3 等登入相關套件。
+

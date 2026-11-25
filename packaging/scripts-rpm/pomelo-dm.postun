@@ -1,0 +1,14 @@
+if [ "$1" -eq 0 ]; then
+	rm -rf /var/lib/pomelo-dm
+	getent passwd pomelo-greeter >/dev/null && userdel pomelo-greeter >/dev/null 2>&1 || :
+	if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
+		semodule -r pomelo-dm >/dev/null 2>&1 || :
+	fi
+	if command -v semanage >/dev/null 2>&1; then   # 0.35 以前用 semanage 加的標籤
+		semanage fcontext -d '/usr/sbin/pomelo-dm' 2>/dev/null || :
+		semanage fcontext -d '/var/lib/pomelo-dm(/.*)?' 2>/dev/null || :
+		semanage fcontext -d '/run/pomelo-dm(/.*)?' 2>/dev/null || :
+	fi
+fi
+systemctl daemon-reload >/dev/null 2>&1 || :
+exit 0

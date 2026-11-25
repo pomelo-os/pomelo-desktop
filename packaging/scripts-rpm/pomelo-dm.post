@@ -1,0 +1,15 @@
+# 資料夾與權限（跟 Debian 版一樣）；不會自動換掉目前的登入管理員，要換請執行 sudo pomelo-dm-switch on
+install -d -m 755 -o root -g root /var/lib/pomelo-dm
+install -d -m 750 -o root -g pomelo-greeter /var/lib/pomelo-dm/users
+install -d -m 755 -o pomelo-greeter -g pomelo-greeter /var/lib/pomelo-dm/greeter
+# SELinux：載入 pomelo-dm 的規則（標成跟 GDM、LightDM 一樣的登入管理員 xdm_t，並允許連 seatd），
+# 登入後的工作階段才會拿到正確的安全標籤
+if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled && command -v semodule >/dev/null 2>&1; then
+	semodule -i /usr/share/selinux/packages/pomelo-dm.cil >/dev/null 2>&1 || echo "提醒：pomelo-dm 的 SELinux 規則載入失敗（semodule -i /usr/share/selinux/packages/pomelo-dm.cil）" >&2
+	restorecon -R /usr/sbin/pomelo-dm /usr/bin/pomelo-dm /var/lib/pomelo-dm >/dev/null 2>&1 || :
+fi
+systemctl daemon-reload >/dev/null 2>&1 || :
+if [ "$1" -eq 1 ]; then
+	echo "Pomelo 登入畫面已安裝。先試用：sudo pomelo-dm-switch try；改為每次開機使用：sudo pomelo-dm-switch on"
+fi
+exit 0

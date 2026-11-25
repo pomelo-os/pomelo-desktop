@@ -1,0 +1,8 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# 把 PAM 模組加進 common-auth／common-session（登入時自動解鎖鑰匙圈）
+set -e
+if [ "$1" = configure ] && command -v pam-auth-update >/dev/null 2>&1; then
+	pam-auth-update --package
+fi
+exit 0

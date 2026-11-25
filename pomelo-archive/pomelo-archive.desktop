@@ -1,0 +1,26 @@
+[Desktop Entry]
+Type=Application
+Name=壓縮管理員
+Name[en]=Archive Manager
+GenericName=壓縮與解壓縮
+GenericName[en]=Compress and extract
+Comment=壓縮、解壓縮、加密：zip、7z、tar、gz、xz、zst、cpio、iso、squashfs、img…
+Comment[en]=Compress, extract and encrypt: zip, 7z, tar, gz, xz, zst, cpio, iso, squashfs, img…
+Keywords=壓縮;解壓縮;加密;zip;7z;tar;gz;xz;zst;cpio;iso;squashfs;img;archive;compress;extract;
+Exec=pomelo-archive %F
+Icon=pomelo-archive
+Terminal=false
+Categories=Utility;Archiving;Compression;X-Pomelo-Tools;
+StartupWMClass=pomelo-archive
+MimeType=application/zip;application/x-java-archive;application/epub+zip;application/vnd.android.package-archive;application/x-zip-compressed;application/java-archive;application/x-7z-compressed;application/x-tar;application/x-compressed-tar;application/x-bzip-compressed-tar;application/x-bzip2-compressed-tar;application/x-xz-compressed-tar;application/x-zstd-compressed-tar;application/x-lzip-compressed-tar;application/x-lz4-compressed-tar;application/x-lzma-compressed-tar;application/x-cpio;application/x-archive;application/x-deb;application/vnd.debian.binary-package;application/x-rpm;application/x-iso9660-image;application/x-cd-image;application/x-squashfs;application/vnd.squashfs;application/x-raw-disk-image;application/gzip;application/x-gzip;application/x-bzip;application/x-bzip2;application/x-xz;application/zstd;application/x-zstd;application/x-lzip;application/x-lzma;application/x-lz4;application/x-compress;application/vnd.ms-cab-compressed;application/x-lha;application/x-lzh-compressed;application/pgp-encrypted;
+Actions=Compress;ExtractHere;
+
+[Desktop Action Compress]
+Name=壓縮成…
+Name[en]=Compress…
+Exec=pomelo-archive --compress %F
+
+[Desktop Action ExtractHere]
+Name=解壓縮到這裡
+Name[en]=Extract here
+Exec=pomelo-archive --extract-here %F

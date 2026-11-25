@@ -1,0 +1,54 @@
+# packages.txt 裡寫的是 Debian 的套件名稱；打 .rpm 時照這張表換成 Fedora、RHEL 9 系（Rocky、Alma）的名稱。
+# 格式：Debian 名稱;Fedora;RHEL 9 系。「-」= 那邊沒有，略過這個相依。表上沒有的名稱照原樣使用。
+libpomelo0;libpomelo;libpomelo
+libpomelo-dev;libpomelo-devel;libpomelo-devel
+libx11-dev;libX11-devel;libX11-devel
+libxext-dev;libXext-devel;libXext-devel
+libxrandr-dev;libXrandr-devel;libXrandr-devel
+libcairo2-dev;cairo-devel;cairo-devel
+libjpeg-dev;libjpeg-turbo-devel;libjpeg-turbo-devel
+fonts-noto-cjk;google-noto-sans-cjk-fonts;google-noto-sans-cjk-ttc-fonts
+fonts-wqy-microhei;wqy-microhei-fonts;-
+fonts-arphic-uming;-;-
+fonts-noto-color-emoji;google-noto-color-emoji-fonts;google-noto-emoji-color-fonts
+fonts-dejavu-core;dejavu-sans-fonts;dejavu-sans-fonts
+yaru-theme-icon;yaru-icon-theme;-
+plocate;plocate;mlocate
+dbus-bin;dbus;dbus
+xserver-xorg;xorg-x11-server-Xorg;xorg-x11-server-Xorg
+xserver-xorg-core;xorg-x11-server-Xorg;xorg-x11-server-Xorg
+xserver-xorg-input-all;xorg-x11-drv-libinput;xorg-x11-drv-libinput
+libglib2.0-bin;glib2;glib2
+pipewire-pulse;pipewire-pulseaudio;pipewire-pulseaudio
+pkexec;polkit;polkit
+policykit-1;polkit;polkit
+polkitd;polkit;polkit
+network-manager;NetworkManager;NetworkManager
+# OpenVPN 外掛：只裝基本的，不要 -gnome（會帶進 GTK／libnma）。Rocky 9 在 EPEL（沒開 EPEL 時 Recommends 會被略過，Pomelo 網路設定會提示怎麼裝）
+network-manager-openvpn;NetworkManager-openvpn;NetworkManager-openvpn
+libpam-runtime;pam;pam
+adduser;shadow-utils;shadow-utils
+libnotify-bin;libnotify;libnotify
+locales;glibc-common;glibc-common
+x11-xkb-utils;setxkbmap;xorg-x11-xkb-utils
+x11-xserver-utils;xrandr;xorg-x11-server-utils
+xinput;xinput;xorg-x11-server-utils
+libopenjp2-7;openjpeg2;openjpeg2
+libjbig2dec0;jbig2dec-libs;jbig2dec-libs
+poppler-data;poppler-data;poppler-data
+xwayland;xorg-x11-server-Xwayland;xorg-x11-server-Xwayland
+libseat1;libseat;libseat
+xkb-data;xkeyboard-config;xkeyboard-config
+dmz-cursor-theme;-;-
+ibus-gtk4;ibus-gtk4;-
+xdg-desktop-portal-wlr;xdg-desktop-portal-wlr;-
+openssh-client;openssh-clients;openssh-clients
+curl;curl;curl
+# 壓縮管理員：libarchive 是編譯相依（執行期相依由 dpkg-shlibdeps／rpm 自動算）；gnupg、squashfs-tools、7zip 是選配（Suggests，見 suggests.txt）
+# Rocky 9 的 7zip 在 EPEL（要先裝 epel-release 並啟用 crb）
+libarchive-dev;libarchive-devel;libarchive-devel
+libarchive13;libarchive;libarchive
+libarchive13t64;libarchive;libarchive
+gnupg;gnupg2;gnupg2
+squashfs-tools;squashfs-tools;squashfs-tools
+7zip;7zip;7zip

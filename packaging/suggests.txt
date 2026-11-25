@@ -1,0 +1,4 @@
+# 選配套件（Suggests）：名稱;建議（Debian 寫法；打 .rpm 時照 rpm-names.txt 換名稱，「-」的略過）
+# 7zip 在 Ubuntu 24.04／26.04、Debian 13 的套件含受 unRAR 限制的碼，所以只能「建議」，不可放進 Depends／Recommends、光碟也不預裝
+pomelo-archive;gnupg, squashfs-tools, 7zip
+pomelo-vpn;openvpn, easy-rsa, qrencode, gnupg, iptables

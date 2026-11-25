@@ -1,0 +1,23 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# 使用者記住的工作階段如果已經不存在（例如 ubuntu，但沒裝 GNOME），
+# LightDM 會拒絕登入、看起來像密碼錯誤。把這種失效的設定改成 pomelo。
+set -e
+if [ "$1" = configure ] && [ -d /var/lib/AccountsService/users ]; then
+	changed=
+	for f in /var/lib/AccountsService/users/*; do
+		[ -f "$f" ] || continue
+		for key in XSession Session; do
+			v=$(sed -n "s/^$key=//p" "$f" | head -n1)
+			[ -n "$v" ] || continue
+			[ -e "/usr/share/xsessions/$v.desktop" ] && continue
+			[ -e "/usr/share/wayland-sessions/$v.desktop" ] && continue
+			sed -i "s/^$key=.*/$key=pomelo/" "$f"
+			changed=1
+		done
+	done
+	if [ -n "$changed" ] && command -v systemctl >/dev/null 2>&1; then
+		systemctl try-restart accounts-daemon.service >/dev/null 2>&1 || true
+	fi
+fi
+exit 0

@@ -1,0 +1,98 @@
+# Pomelo 編譯環境（Ubuntu amd64；預設 24.04，其他版本用 --build-arg）
+#   docker build -t pomelo-build -f packaging/docker/Dockerfile.build packaging/docker
+#   docker build -t pomelo-build:22.04 --build-arg BASE=ubuntu:22.04 -f packaging/docker/Dockerfile.build packaging/docker
+#   docker run --rm -v "$PWD":/src -u $(id -u):$(id -g) -e HOME=/tmp pomelo-build ./packaging/build-deb.sh
+ARG BASE=ubuntu:24.04
+FROM ${BASE}
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential pkg-config dpkg-dev file fakeroot \
+      curl ca-certificates \
+      libx11-dev libxext-dev libxrandr-dev libxcomposite-dev libxft-dev libfontconfig-dev \
+      libcairo2-dev libjpeg-dev libpam0g-dev libdbus-1-dev libpolkit-agent-1-dev libssl-dev \
+      libxcb1-dev libxcb-shape0-dev libxcb-keysyms1-dev libxcb-imdkit-dev libchewing3-dev \
+      libgif-dev libwebp-dev libarchive-dev libmpg123-dev libsndfile1-dev libpulse-dev libxcursor-dev libxfixes-dev zlib1g-dev \
+ && (apt-get install -y --no-install-recommends freerdp3-dev || apt-get install -y --no-install-recommends freerdp2-dev) \
+ && rm -rf /var/lib/apt/lists/*
+
+# pomelo-compositor：wlroots 不依賴各發行版系統套件，自己從原始碼編譯一份裝到 /opt/wlroots，
+# 五個發行版都用同一個版本，不會因為系統套件版本不同（0.15 對 0.17…）出現 API 不相容。
+# wlroots 本身依賴的函式庫（pixman、libdrm、wayland、xkbcommon、libinput、libseat…）優先用系統套件，
+# 這些在大多發行版上都穩定存在，只有 wlroots 這個 .so 本體是私有附帶，見 packaging/third-party/wlroots/NOTICE.txt。
+# libdisplay-info 是 wlroots 的可選相依（舊版 Ubuntu 如 22.04 沒有這個套件），缺了用
+# || true 跳過、讓 meson 的 auto 相依自己判斷有沒有裝到。libliftoff（硬體 overlay 直接
+# scanout 的效能優化、純屬可選）故意整個不裝：它在 wlroots meson.build 裡沒有獨立的
+# disable 選項，只能靠「裝不到就自動停用」，但 26.04 系統裝的 libliftoff 版本 API 跟
+# wlroots 0.17.1 原始碼裡寫死呼叫的介面不相容（liftoff_output_apply 參數數量不同），
+# 裝了反而編譯失敗，不值得為一個效能優化去追版本相容性。
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends meson ninja-build \
+      libwayland-dev wayland-protocols libxkbcommon-dev libpixman-1-dev \
+      libdrm-dev libinput-dev libseat-dev \
+      libgbm-dev libegl-dev libgles2-mesa-dev \
+      libcap-dev libsystemd-dev libudev-dev \
+      libxcb-composite0-dev libxcb-dri3-dev libxcb-ewmh-dev libxcb-icccm4-dev \
+      libxcb-image0-dev libxcb-present-dev libxcb-render0-dev libxcb-render-util0-dev \
+      libxcb-res0-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb-xinput-dev libx11-xcb-dev \
+      xwayland hwdata \
+ && (apt-get install -y --no-install-recommends libdisplay-info-dev || true) \
+ && rm -rf /var/lib/apt/lists/*
+# 22.04 系統的 wayland-server（1.20）／pixman（0.40）比 wlroots 0.17.1 要求的新版本舊
+# （>=1.22／>=0.42），wlroots 的 meson.build 對這幾個相依本來就寫了 fallback 機制：系統版本
+# 不夠就改抓原始碼、當 meson subproject 一起編，裝進同一個 /opt/wlroots/lib，省掉另外維護
+# 一套「依發行版決定要不要編 wayland」的邏輯。這裡固定裝好 wrap 檔＋編譯相依，系統版本夠新
+# 的發行版（24.04/26.04/Fedora/Rocky）fallback 不會被觸發、完全不影響，純粹多裝幾個沒用到
+# 的套件。wayland subproject 的 meson.build 要求 meson>=0.64，系統 apt 裝的 meson 太舊
+# （22.04 是 0.61），用 pip 裝新版蓋過去；xwayland 套件在 22.04 沒有附 pkg-config 檔（新版
+# 發行版/Fedora 都有，只有 22.04 缺），手動補一份最小的。
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3-pip \
+      libexpat1-dev libffi-dev libxml2-dev libpciaccess-dev \
+ && (pip3 install --quiet --no-cache-dir --break-system-packages "meson>=1.3" \
+      || pip3 install --quiet --no-cache-dir "meson>=1.3") \
+ && rm -rf /var/lib/apt/lists/* \
+ && if ! pkg-config --exists xwayland; then \
+      mkdir -p /usr/local/lib/pkgconfig && \
+      printf 'prefix=/usr\nexec_prefix=${prefix}\nxwayland=/usr/bin/Xwayland\n\nName: Xwayland\nDescription: X Server for Wayland\nVersion: 1\n' \
+        > /usr/local/lib/pkgconfig/xwayland.pc; \
+    fi
+ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/opt/wlroots/lib/pkgconfig
+# 新版 GCC（如 Fedora 44 的 GCC 14）對 wlroots 原始碼裡的 calloc 參數順序／switch 列舉
+# 處理會發出 -Werror；舊版 GCC（如 22.04 的 GCC 11）根本沒有這些警告選項，直接傳
+# -Wno-error=xxx 反而會因為「找不到這個警告」本身炸掉，所以先逐一探測編譯器支援哪些再組 c_args。
+# LDFLAGS 的 $ORIGIN rpath：fallback 編出來的 wayland/libdrm/pixman .so 跟 libwlroots.so
+# 裝在同一個目錄，讓 libwlroots.so 自己能在「不管最後被複製到哪個目錄」都找到同目錄的這些
+# .so，不用額外處理 LD_LIBRARY_PATH；系統版本夠新、fallback 沒被觸發時這個 rpath 不影響
+# 任何事（libwlroots.so 當時的 NEEDED 本來就是系統的 libwayland-server.so.0 等，一樣能找到）。
+# 套用自己的 patch（說明寫在 patch 檔開頭）：override-redirect 視窗不放進 _NET_CLIENT_LIST
+# patch 內容由 build-all.sh 以 base64 用 --build-arg 傳進來，不用 COPY：舊版 docker 建置器（沒有 buildx）
+# 在 --platform linux/arm64（qemu-user 模擬）時 COPY 會失敗（「image … does not provide the specified platform」）。
+ARG WLROOTS_PATCH_B64
+RUN echo "$WLROOTS_PATCH_B64" | base64 -d > /tmp/wlroots-0.17.1-client-list-no-override-redirect.patch \
+ && echo 'int main(void){return 0;}' > /tmp/t.c \
+ && EXTRA_CARGS="" \
+ && for w in calloc-transposed-args switch; do \
+      if cc -Wno-error=$w -c /tmp/t.c -o /tmp/t.o >/dev/null 2>&1; then \
+        EXTRA_CARGS="$EXTRA_CARGS -Wno-error=$w"; \
+      fi; \
+    done \
+ && echo "$EXTRA_CARGS" > /tmp/wlroots-cargs \
+ && curl -fsSL -o /tmp/wlroots.tar.gz \
+      http://archive.ubuntu.com/ubuntu/pool/universe/w/wlroots/wlroots_0.17.1.orig.tar.gz \
+ && cd /tmp && tar xf wlroots.tar.gz && cd wlroots-0.17.1 \
+ && patch -p1 < /tmp/wlroots-0.17.1-client-list-no-override-redirect.patch \
+ && mkdir -p subprojects \
+ && for p in wayland libdrm pixman wayland-protocols; do meson wrap install $p >/dev/null; done \
+ && LDFLAGS='-Wl,-rpath,$ORIGIN,--enable-new-dtags' meson setup build \
+      --prefix=/opt/wlroots --libdir=lib --buildtype=release \
+      -Dxwayland=enabled -Dexamples=false -Drenderers=gles2 -Dbackends=auto \
+      -Dallocators=gbm -Dsession=auto -Dxcb-errors=disabled \
+      -Dc_args="$(cat /tmp/wlroots-cargs)" \
+ && ninja -C build install \
+ && cd / && rm -rf /tmp/wlroots.tar.gz /tmp/wlroots-0.17.1 /tmp/wlroots-cargs /tmp/t.c /tmp/t.o /tmp/wlroots-0.17.1-client-list-no-override-redirect.patch
+# 小柚瀏覽器（pomelo-browser）：網頁引擎用系統的 WebKitGTK 6.0。放在最後一層，前面編 wlroots 的層可以沿用快取。
+# 裝不到（沒有這個套件的發行版）也沒關係，make 會自動略過瀏覽器
+RUN apt-get update \
+ && (apt-get install -y --no-install-recommends libwebkitgtk-6.0-dev libgtk-4-dev || true) \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /src

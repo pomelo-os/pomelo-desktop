@@ -1,0 +1,11 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -e
+if [ "$1" = purge ]; then
+	rm -rf /var/lib/pomelo-dm
+	if getent passwd pomelo-greeter >/dev/null && command -v deluser >/dev/null 2>&1; then
+		deluser --quiet --system pomelo-greeter >/dev/null 2>&1 || true
+	fi
+fi
+command -v systemctl >/dev/null 2>&1 && systemctl daemon-reload >/dev/null 2>&1 || true
+exit 0

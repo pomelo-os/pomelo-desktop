@@ -1,0 +1,17 @@
+/* 短篇說明文件（例如效能比較）的補充樣式：跟 packaging/manual.css 一起用。
+ * table.bars：一列一個項目的長條表格（名稱、長條、數值），小柚瀏覽器那一列用強調色 */
+:root { --bar: #aeaeb2; }
+@media (prefers-color-scheme: dark) { :root { --bar: #636366; } }
+table.bars { width: 100%; border-collapse: separate; border-spacing: 0 3px; margin: 6px 0 22px; }
+table.bars caption { caption-side: top; text-align: left; color: var(--muted); font-size: .92em; padding: 0 0 4px; }
+table.bars th, table.bars td { border: none; background: none; padding: 3px 0; }
+table.bars th { width: 8.5em; text-align: left; font-weight: normal; padding-right: 12px; white-space: nowrap; }
+table.bars tr.me th { font-weight: bold; }
+table.bars .bar { display: inline-block; height: 15px; border-radius: 0 4px 4px 0; background: var(--bar); vertical-align: middle; }
+table.bars tr.me .bar { background: var(--accent); }
+table.bars .v { margin-left: 8px; font-variant-numeric: tabular-nums; vertical-align: middle; }
+table.bars .n { color: var(--muted); font-size: .88em; margin-left: 6px; }
+.key { display: flex; gap: 14px; flex-wrap: wrap; margin: 18px 0 8px; }
+.key div { flex: 1 1 150px; background: var(--soft); border-radius: 12px; padding: 12px 16px; }
+.key b { display: block; font-size: 1.6em; line-height: 1.2; }
+.key span { color: var(--muted); font-size: .9em; }

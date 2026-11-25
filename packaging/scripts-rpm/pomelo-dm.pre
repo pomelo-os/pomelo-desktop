@@ -1,0 +1,7 @@
+# 登入畫面用的系統帳號（沒有權限、不能登入）
+getent group pomelo-greeter >/dev/null || groupadd -r pomelo-greeter
+getent passwd pomelo-greeter >/dev/null || \
+	useradd -r -g pomelo-greeter -d /var/lib/pomelo-dm -M -s /usr/sbin/nologin -c "Pomelo 登入畫面" pomelo-greeter
+# 有些顯示卡驅動需要 video 群組
+usermod -a -G video pomelo-greeter >/dev/null 2>&1 || true
+exit 0

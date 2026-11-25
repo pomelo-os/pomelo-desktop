@@ -1,0 +1,58 @@
+# 套件清單：名稱;類型;來源資料夾;額外相依;建議安裝;提供;說明
+# 類型：bin = 有執行檔（自動用 dpkg-shlibdeps 算出函式庫相依）、meta = 中繼套件
+libpomelo0;bin;libpomelo;shared-mime-info, fonts-noto-cjk | fonts-wqy-microhei | fonts-arphic-uming, hicolor-icon-theme, yaru-theme-icon | adwaita-icon-theme;;libpomelo;Pomelo 共用函式庫（繪圖、圖示、選單、設定、介面元件）
+libpomelo-dev;bin;libpomelo;libpomelo0 (= @PKGVER@), libx11-dev, libxext-dev, libxrandr-dev, libcairo2-dev, libjpeg-dev;;;Pomelo 共用函式庫的開發檔案
+pomelo-wm;bin;pomelo-wm;;pomelo-panel, pomelo-terminal, plocate;x-window-manager;Pomelo 視窗管理器（圓角外框、搜尋、視窗總覽；舊版 X11 路徑，桌面預設改用 pomelo-compositor）
+pomelo-compositor;bin;pomelo-compositor;xwayland, libseat1, xkb-data;pomelo-panel, pomelo-terminal, plocate, xdg-desktop-portal-wlr;;Pomelo 的 Wayland compositor（取代 Xorg＋picom＋pomelo-wm；既有 pomelo-* 程式透過內嵌 XWayland 原封不動繼續執行，不用改寫）
+pomelo-panel;bin;pomelo-panel;;pomelo-wm | pomelo-compositor, pomelo-control-center, pomelo-launcher, pulseaudio-utils;;Pomelo 頂端選單列與 Dock
+pomelo-session;bin;pomelo-session;pomelo-panel (>= @VERSION@), dbus-bin | dbus;pomelo-compositor, pomelo-polkit, pomelo-keyring, pomelo-notify, pomelo-power, pomelo-display, pomelo-terminal, pomelo-files, pomelo-system;;Pomelo 工作階段管理員（登入畫面的 Pomelo 選項）
+pomelo-terminal;bin;pomelo-terminal;;fonts-noto-color-emoji;x-terminal-emulator;Pomelo 輕量終端機（分頁、彩色 emoji）
+pomelo-edit;bin;pomelo-edit;;;;Pomelo 文字編輯器（選單列、多個分頁、檔案清單、尋找與取代、Big5 自動轉碼；.txt 預設用它開啟）
+pomelo-input;bin;pomelo-input;;;;Pomelo 輸入法（XIM 伺服器，不用 fcitx／ibus；注音內建，拼音、倉頡、速成、粵拼、日文、韓文、越南文可另外加裝）
+pomelo-files;bin;pomelo-files;shared-mime-info;libglib2.0-bin, pomelo-terminal, pomelo-edit;;Pomelo 檔案管理員
+pomelo-theme;bin;pomelo-theme;;pomelo-wm, pomelo-panel, dmz-cursor-theme;;Pomelo 外觀設定（深色模式、強調色、桌布、Dock）
+pomelo-sound;bin;pomelo-sound;pulseaudio-utils;pipewire-pulse | pulseaudio;;Pomelo 音效設定
+pomelo-monitor;bin;pomelo-monitor;;pomelo-doctor;;Pomelo 活動監視器（CPU、記憶體、磁碟、網路與程序）
+pomelo-storage;bin;pomelo-storage;udisks2;exfatprogs, dosfstools, pkexec, pomelo-files;;Pomelo 儲存空間（磁碟用量、硬碟健康、外接裝置自動掛載／退出／格式化、清理）
+pomelo-network;bin;pomelo-network;network-manager;network-manager-openvpn, pomelo-doctor;;Pomelo 網路設定（Wi-Fi、企業 Wi-Fi、有線網路、VPN：WireGuard 與 OpenVPN）
+pomelo-control-center;bin;pomelo-control-center;;pulseaudio-utils, network-manager, brightnessctl;;Pomelo 控制中心（快速設定）
+pomelo-lock;bin;pomelo-lock;libpam-runtime;pomelo-power;;Pomelo 螢幕鎖定（登入密碼解鎖）
+pomelo-notify;bin;pomelo-notify;;libnotify-bin;notification-daemon;Pomelo 通知服務（freedesktop 通知規格）
+pomelo-power;bin;pomelo-power;;pomelo-lock, systemd, pomelo-screensaver;;Pomelo 電源管理（閒置鎖定、關螢幕、休眠、電量警告）
+pomelo-screensaver;bin;pomelo-screensaver;pomelo-power;pomelo-lock, pomelo-notify;;Pomelo 螢幕保護程式（時鐘、照片幻燈片、小柚、流動色彩、星空、氣泡、文字、純黑；閒置時由 pomelo-power 啟動、結束就消失，不常駐；喚醒可要求密碼並與鎖定畫面無縫銜接；設定在系統設定的「螢幕保護程式」）
+pomelo-polkit;bin;pomelo-polkit;polkitd;;polkit-1-auth-agent;Pomelo 密碼認證視窗（需要管理員權限時輸入密碼；不需要 GTK／GNOME）
+pomelo-keyring;bin;pomelo-keyring;libpam-runtime;;;Pomelo 鑰匙圈（幫 Chrome、VS Code 等程式保管密碼，登入時自動解鎖；取代 gnome-keyring，不需要 GNOME）
+pomelo-assistant;bin;pomelo-assistant;curl, ca-certificates, bzip2;plocate, libnotify-bin, pulseaudio-utils, fonts-dejavu-core;;Pomelo 小幫手「小柚」（預設在本機執行的 AI：聊天、開程式、找檔案、調設定；模型與語音第一次使用時下載；選用線上大腦，需自己的 API 金鑰、同意後才啟用，用 curl 連線）
+pomelo-language;bin;pomelo-language;;locales, x11-xkb-utils, pomelo-input, curl;;Pomelo 語言與輸入法（介面語言、地區格式、鍵盤、輸入法）
+pomelo-launcher;bin;pomelo-launcher;;pomelo-panel;;Pomelo 啟動器（全螢幕應用程式選單）
+pomelo-software;bin;pomelo-software;appstream, pkexec | policykit-1;pomelo-polkit, pomelo-terminal;;Pomelo 軟體中心（安裝、移除軟體與系統更新）
+pomelo-display;bin;pomelo-display;x11-xserver-utils;;;Pomelo 顯示器設定（解析度、更新頻率、旋轉、多螢幕排列）
+pomelo-bluetooth;bin;pomelo-bluetooth;bluez;;;Pomelo 藍牙設定（搜尋、配對、連線、電量）
+pomelo-system;bin;pomelo-system;;pomelo-theme, pomelo-sound, pomelo-network, pomelo-language, pomelo-display, pomelo-bluetooth, pomelo-storage, x11-xserver-utils, xinput, pciutils, usbutils, pkexec, pomelo-assistant, pomelo-keyring, curl | wget, pomelo-doctor;;Pomelo 系統設定（一般、外觀、搜尋、通知、鍵盤、滑鼠、螢幕使用時間、使用者與群組、印表機）
+pomelo-screenshot;bin;pomelo-screenshot;;pulseaudio-utils;;Pomelo 螢幕截圖與錄影（Super+Shift+3／4／5；錄影時才需要 ffmpeg）
+pomelo-calc;bin;pomelo-calc;;;;Pomelo 計算機（一般與工程模式、邊打邊算、計算紀錄）
+pomelo-calendar;bin;pomelo-calendar;;pomelo-notify, curl, tzdata;;Pomelo 行事曆（月、週、日、議程檢視，iCalendar（.ics）、重複行程與提醒、台灣假日與農曆、CalDAV 同步；背景提醒由 pomelo-session 啟動）
+pomelo-viewer;bin;pomelo-viewer;;;;Pomelo 看圖（PNG、JPEG、GIF 與 WebP 動畫、BMP；手機照片自動轉正、縮放、旋轉、幻燈片；HEIC／AVIF 需要時才裝 libheif）
+pomelo-player;bin;pomelo-player;;;;Pomelo 影音播放器（音樂庫、播放清單、字幕；MP3、FLAC、Ogg、Opus、WAV 直接播，mp4、mkv、webm、avi、mov 影片與 M4A／AAC 需要另外安裝 ffmpeg，不會自動裝進來，第一次播放時程式會詢問，按一下就裝好）
+pomelo-pdf;bin;pomelo-pdf;;poppler-data, libopenjp2-7, libjbig2dec0;;Pomelo PDF 閱讀器（自己寫的 PDF 核心：縮圖、書籤、搜尋、選取與拷貝文字、密碼保護的文件、列印）
+pomelo-paint;bin;pomelo-paint;;;;Pomelo 繪圖（鉛筆、筆刷、形狀、箭頭、文字、油漆桶、選取與裁切；開 PNG／JPEG／GIF／WebP／BMP，存 PNG／JPEG／BMP）
+pomelo-remote;bin;pomelo-remote;;pomelo-keyring;;Pomelo 遠端桌面（連到 Windows 的遠端桌面：常用電腦清單、密碼存鑰匙圈、解析度跟著視窗、全螢幕、剪貼簿文字雙向、聲音；協定用 FreeRDP 函式庫，不用 xfreerdp）
+pomelo-writer;bin;pomelo-writer;;;;Pomelo 文書處理器（開啟、編輯、存檔 Word .docx 與 OpenDocument .odt；文件模型、排版、檔案格式都是自己寫的）
+pomelo-sheet;bin;pomelo-sheet;;;;Pomelo 試算表（開啟、編輯、存檔 Excel .xlsx 與 OpenDocument .ods；試算表模型、公式引擎、檔案格式都是自己寫的）
+pomelo-slides;bin;pomelo-slides;;;;Pomelo 簡報（開啟、編輯、存檔 PowerPoint .pptx 與 OpenDocument .odp；簡報模型、檔案格式都是自己寫的）
+pomelo-browser;bin;pomelo-browser;ibus-gtk4;libnotify-bin;www-browser;小柚瀏覽器（輕巧、開得快的網頁瀏覽器：分頁、搜尋、下載、Pomelo 輸入法打中文；網頁引擎與安全性更新來自系統的 WebKitGTK）
+pomelo-vm;bin;pomelo-vm;;pkexec | policykit-1, pomelo-terminal, udisks2;;Pomelo 虛擬機器（用 QEMU／KVM 執行別的作業系統：x86_64 與 ARM64、快照、儲存狀態、USB 穿透、NAT 與橋接網路、使用量圖表；QEMU 第一次使用時才安裝，不裝它的 GTK 介面）
+pomelo-cluster;bin;pomelo-cluster;openssh-client;pomelo-terminal, pomelo-keyring, curl | wget, git;;Pomelo 容器叢集（用點選的方式建好、管好一個 Kubernetes 叢集：引擎 k3s；體檢硬體給角色建議、一台或多台、Server／Client／NFS 儲存；儀表板、Pod 日誌與終端機、套用 YAML、匯入 kubeconfig、帳號與權限、GitOps、離線安裝包；選裝）
+pomelo-docker;bin;pomelo-docker;;pomelo-terminal;;Pomelo 容器（Docker 管理：安裝 Docker、開始停止容器、從映像建立、進到容器裡、看紀錄、備份與還原、每個容器的使用量；Docker 第一次使用時才安裝）
+pomelo-archive;bin;pomelo-archive;;;;Pomelo 壓縮管理員（壓縮、解壓縮、加密：zip、7z、tar.gz／xz／zst、cpio、iso、squashfs、img 等；瀏覽、右鍵、拖放，檔案管理員右鍵可直接壓縮與解壓縮；不支援 RAR；SquashFS、磁碟映像與加密 7z 要另外裝 7-Zip，tar 系列加密要 gnupg，皆為選配，裝了才有該功能；Rocky 9 的 7zip 在 EPEL，要先裝 epel-release 並啟用 crb）
+pomelo-packets;bin;pomelo-packets;;pkexec, gnupg, libopus0, pomelo-netscan, pomelo-notify;;Pomelo 封包分析器（pcap／pcapng 分析與封包擷取、協定解析、顯示過濾、TCP 重組、專家資訊；RTP／VoIP 串流品質、SIP 呼叫流程圖與問題建議。預設只做統計，還原成可聽音訊需逐次授權並寫入稽核紀錄；特權輔助程式不是 setuid，開好 socket 就降權）
+pomelo-doctor;bin;pomelo-doctor;;pomelo-notify, pkexec, pomelo-system, pomelo-monitor, pomelo-storage;;Pomelo 主機醫生（體檢歷史與趨勢預測、為什麼變慢診斷、安全總覽、入侵檢查、日誌檢視與事件時間線、被攻擊時的處置；每天採樣一次、做完就結束，不常駐）
+pomelo-greeter;bin;pomelo-greeter;;pomelo-dm;;Pomelo 登入畫面（大時鐘、頭像；由 pomelo-dm 以沒有權限的帳號執行）
+pomelo-dm;bin;pomelo-dm;pomelo-greeter (>= @VERSION@), pomelo-compositor (>= @VERSION@), libpam-runtime, adduser, systemd;pomelo-session;;Pomelo 登入管理員（取代 GDM／LightDM：不需要 GLib、D-Bus，常駐約 2 MB；用 pomelo-dm-switch 切換）
+pomelo-shell;meta;;pomelo-wm (>= @VERSION@) | pomelo-compositor (>= @VERSION@), pomelo-panel (>= @VERSION@), pomelo-session (>= @VERSION@), pomelo-control-center (>= @VERSION@), pomelo-lock (>= @VERSION@), pomelo-notify (>= @VERSION@), pomelo-power (>= @VERSION@), pomelo-storage (>= @VERSION@), pomelo-polkit (>= @VERSION@), pomelo-keyring (>= @VERSION@);pomelo-compositor;;Pomelo 桌面外殼（視窗管理器、面板、工作階段、控制中心；桌面預設改用 pomelo-compositor 取代 Xorg＋picom＋pomelo-wm）
+pomelo-desktop;meta;;pomelo-shell (>= @VERSION@), pomelo-terminal (>= @VERSION@), pomelo-files (>= @VERSION@), pomelo-edit (>= @VERSION@), pomelo-system (>= @VERSION@), pomelo-theme (>= @VERSION@), pomelo-sound (>= @VERSION@), pomelo-network (>= @VERSION@), pomelo-language (>= @VERSION@), pomelo-input (>= @VERSION@), pomelo-launcher (>= @VERSION@), pomelo-software (>= @VERSION@), pomelo-display (>= @VERSION@), pomelo-bluetooth (>= @VERSION@), pomelo-monitor (>= @VERSION@), pomelo-storage (>= @VERSION@), pomelo-screenshot (>= @VERSION@), pomelo-calc (>= @VERSION@), pomelo-calendar (>= @VERSION@), pomelo-viewer (>= @VERSION@), pomelo-player (>= @VERSION@), pomelo-pdf (>= @VERSION@), pomelo-paint (>= @VERSION@), pomelo-remote (>= @VERSION@), pomelo-writer (>= @VERSION@), pomelo-sheet (>= @VERSION@), pomelo-slides (>= @VERSION@), pomelo-archive (>= @VERSION@), pomelo-packets (>= @VERSION@), pomelo-doctor (>= @VERSION@), pomelo-firewall (>= @VERSION@), pomelo-netscan (>= @VERSION@), pomelo-gpu (>= @VERSION@), pomelo-screensaver (>= @VERSION@), fonts-noto-cjk, pomelo-backup (>= @VERSION@), pomelo-vpn (>= @VERSION@);pomelo-assistant, pomelo-browser, pomelo-vm, pomelo-docker, fonts-tlwg-loma-ttf | fonts-noto-core;;完整的 Pomelo 桌面（外殼加上所有應用程式與設定）
+pomelo-firewall;bin;pomelo-firewall;iptables, pkexec | policykit-1;ipset, pomelo-notify, pomelo-doctor;;Pomelo 防火牆管理員（iptables 的圖形管理介面：就地讀取、就地寫回系統現有規則，不取代 ufw／firewalld／iptables；白話說明、風險建議、30 秒自動還原、備份、攻擊防護與自動封鎖）
+pomelo-netscan;bin;pomelo-netscan;;pomelo-notify, pkexec, ieee-data, libnotify-bin, pomelo-doctor;;Pomelo 網路探索（盤點網路上有哪些設備、開了哪些埠、跑什麼系統、什麼型號、大概在哪；偵測 IP／DHCP 衝突、可疑設備、不該開的埠、異常封包；整體網路安全評估與拓樸圖。全程唯讀，只掃描私有網段；特權輔助程式只做 ARP／LLDP／DHCP 探測與被動封包監聽，開好 socket 就降權）
+pomelo-gpu;bin;pomelo-gpu;;pomelo-notify, pkexec, libnotify-bin;;Pomelo 顯卡監視（唯讀：有幾張顯卡、型號與規格、使用率、顯示記憶體、溫度、功耗、時脈、使用顯卡的處理程序與所屬容器，以及載入在顯示記憶體裡與已安裝的 AI 模型；NVIDIA 由 NVML 或 nvidia-smi 讀取（驅動由使用者自己安裝，不隨附），AMD、Intel 與虛擬顯示卡讀 sysfs；沒有驅動時只說明各發行版的官方安裝方式，不自動安裝；特權輔助程式只輸出 PID、名稱與顯示記憶體）
+pomelo-backup;bin;pomelo-backup;rsync, tar, pkexec | policykit-1;zstd, gnupg, gzip, pomelo-notify, pomelo-doctor, pomelo-files;;Pomelo 備份（rsync 硬連結快照、systemd 使用者定時器排程、備份保留策略、還原與誤刪救援、驗證、gpg 加密封存；主機醫生會檢查有沒有備份；絕不刪來源、還原不覆蓋現有檔案）
+pomelo-vpn;bin;pomelo-vpn;pkexec | policykit-1, iproute2, curl, ca-certificates;pomelo-network, pomelo-doctor, pomelo-notify;;Pomelo VPN 伺服器精靈（用精靈建立並管理 OpenVPN 伺服器、設定 Tailscale；介面上按「下載並安裝」就能取回 openvpn、easy-rsa、qrencode、tailscale；預設安全：現代加密、tls-crypt、EC 憑證、降權、撤銷清單；特權動作只走白名單輔助程式與 polkit）

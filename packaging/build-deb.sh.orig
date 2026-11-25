@@ -1,0 +1,234 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# 產生 Pomelo 各套件的 .deb（放在 dist/<發行版>/，例如 dist/ubuntu24.04/）
+#
+#   VERSION=0.2 ./packaging/build-deb.sh
+#
+# 每個資料夾是一個獨立套件；套件間的相依寫在 packaging/packages.txt，
+# 執行檔需要的函式庫由 dpkg-shlibdeps 自動算出。
+# 套件版本是「版本+發行版」（例如 0.25+ubuntu22.04），升級 Ubuntu 後裝新版本的套件時 apt 會正常更新。
+set -e
+
+VERSION=${VERSION:-0.41}
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+
+# 在暫存的副本裡編譯：同時建好幾個發行版的套件也不會互相干擾
+if [ -z "$POMELO_IN_COPY" ]; then
+	W=$(mktemp -d)
+	tar -C "$ROOT" --exclude=./build --exclude=./dist --exclude='./*.tar.gz' -cf - . | tar -C "$W" -xf -
+	set +e
+	POMELO_IN_COPY=1 OUT="$ROOT/dist" "$W/packaging/build-deb.sh" "$@"
+	rc=$?
+	rm -rf "$W"
+	exit $rc
+fi
+# 不能直接 . /etc/os-release：它的 VERSION 會蓋掉我們的版本號
+DISTRO=$(. /etc/os-release && echo "$ID$VERSION_ID")
+PKGVER="$VERSION+$DISTRO"
+ARCH=$(dpkg --print-architecture)
+MA=$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -print-multiarch)
+B="$ROOT/build"
+# 非 amd64（例如用 qemu-user 建的 arm64）輸出到 dist/<發行版>-<架構>/，不會跟 amd64 的混在一起
+DD="$DISTRO$([ "$ARCH" = amd64 ] || echo "-$ARCH")"
+D="${OUT:-$ROOT/dist}/$DD"
+MAINT="${DEBFULLNAME:-pake} <${DEBEMAIL:-pake@fedora.tw}>"
+HOMEPAGE="https://fedora.tw"
+
+# 1. 以 /usr 為安裝位置重新編譯
+make -C "$ROOT" clean >/dev/null
+rm -rf "$B" "$D"
+mkdir -p "$B" "$D"
+make -C "$ROOT/libpomelo" PREFIX=/usr LIBDIR=/usr/lib/$MA VERSION="$VERSION" >/dev/null
+make -C "$ROOT" all PREFIX=/usr VERSION="$VERSION" >/dev/null
+
+# dpkg-shlibdeps 需要一個 debian/ 資料夾，並告訴它 libpomelo 由哪個套件提供
+mkdir -p "$B/src/debian"
+printf 'Source: pomelo\n\nPackage: pomelo\nArchitecture: any\n' > "$B/src/debian/control"
+printf 'libpomelo 0 libpomelo0 (>= %s)\n' "$VERSION" > "$B/src/debian/shlibs.local"
+
+LIB="$ROOT/libpomelo"
+
+# 2. 把每個套件安裝到 build/<套件>/
+make -C "$ROOT/libpomelo" install DESTDIR="$B/_lib" PREFIX=/usr LIBDIR=/usr/lib/$MA >/dev/null
+mkdir -p "$B/libpomelo0/usr/lib/$MA" "$B/libpomelo-dev/usr/lib/$MA"
+cp -a "$B/_lib/usr/lib/$MA/libpomelo.so.0" "$B/libpomelo0/usr/lib/$MA/"
+mkdir -p "$B/libpomelo0/usr/share"
+cp -a "$B/_lib/usr/share/pomelo" "$B/libpomelo0/usr/share/"   # 介面翻譯
+mkdir -p "$B/libpomelo0/usr/bin"
+cp -a "$B/_lib/usr/bin/pomelo-open" "$B/libpomelo0/usr/bin/"   # 用預設程式開啟（取代 xdg-open）
+cp -a "$B/_lib/usr/include" "$B/libpomelo-dev/usr/"
+cp -a "$B/_lib/usr/lib/$MA/libpomelo.so" "$B/_lib/usr/lib/$MA/pkgconfig" "$B/libpomelo-dev/usr/lib/$MA/"
+rm -rf "$B/_lib"
+
+for dir in pomelo-wm pomelo-compositor pomelo-panel pomelo-session pomelo-terminal pomelo-files pomelo-theme \
+           pomelo-sound pomelo-network pomelo-control-center pomelo-system \
+           pomelo-lock pomelo-notify pomelo-power pomelo-screensaver pomelo-language \
+           pomelo-launcher pomelo-software pomelo-display pomelo-bluetooth pomelo-monitor pomelo-storage pomelo-polkit pomelo-assistant pomelo-keyring pomelo-edit pomelo-input pomelo-greeter pomelo-dm pomelo-screenshot pomelo-calc pomelo-calendar pomelo-viewer pomelo-player pomelo-pdf pomelo-paint pomelo-remote pomelo-writer pomelo-sheet pomelo-slides pomelo-vm pomelo-docker pomelo-cluster pomelo-archive pomelo-packets pomelo-doctor pomelo-firewall pomelo-netscan pomelo-gpu; do
+	make -C "$ROOT/$dir" install DESTDIR="$B/$dir" PREFIX=/usr \
+		POMELO_CFLAGS="-I$LIB $(pkg-config --cflags x11 xext xrandr cairo)" \
+		POMELO_LIBS="-L$LIB -lpomelo $(pkg-config --libs x11 xext xrandr cairo)" \
+		LD_LIBRARY_PATH="$LIB" >/dev/null
+done
+
+# 小柚瀏覽器：要 WebKitGTK 6.0，建置環境沒有（make all 就不會編）就不裝、也不打包
+if [ -x "$ROOT/pomelo-browser/pomelo-browser" ]; then
+	make -C "$ROOT/pomelo-browser" install DESTDIR="$B/pomelo-browser" PREFIX=/usr \
+		POMELO_CFLAGS="-I$LIB $(pkg-config --cflags x11 xext xrandr cairo)" \
+		POMELO_LIBS="-L$LIB -lpomelo $(pkg-config --libs x11 xext xrandr cairo)" \
+		LD_LIBRARY_PATH="$LIB" >/dev/null
+	# AppArmor 4（Ubuntu 24.04 起、Debian 13）：允許網頁沙箱用使用者命名空間。22.04 的 AppArmor 3 沒有這個限制，也不認得 abi/4.0
+	[ "$DISTRO" = ubuntu22.04 ] || install -Dm644 "$ROOT/pomelo-browser/apparmor-profile" "$B/pomelo-browser/etc/apparmor.d/pomelo-browser"
+fi
+
+# wlroots 不是系統套件（故意的：五個發行版都釘死同一個版本，見
+# packaging/third-party/wlroots/NOTICE.txt），pomelo-compositor 自己帶一份私有的 libwlroots.so，
+# 跟 pomelo-input 在 Rocky 附帶私有的 xcb-imdkit 是同一招：裝到套件自己的私有目錄、
+# 執行檔的 rpath 指過去；因為私有的 .so 也在同一個套件裡被 dpkg-shlibdeps 一起掃到，
+# 不會產生「需要系統裝 libwlroots」這種裝不到的相依。
+# 在 22.04 這種系統 wayland-server／pixman 版本比 wlroots 要求舊的發行版上，meson 會用
+# wrap fallback 自己編一份一起裝進 /opt/wlroots/lib（見 Dockerfile.build），所以這裡複製
+# 整個目錄的 .so，不只 libwlroots.so 本體；wlroots 本身建置時已經帶 $ORIGIN rpath，
+# 跟同目錄的其他 .so 自己對得起來，不需要額外處理。
+if [ -n "${PKG_CONFIG_PATH:-}" ] && echo "$PKG_CONFIG_PATH" | grep -q wlroots; then
+	mkdir -p "$B/pomelo-compositor/usr/lib/$MA/pomelo-compositor"
+	cp -a /opt/wlroots/lib/*.so* "$B/pomelo-compositor/usr/lib/$MA/pomelo-compositor/"
+	rm -f "$ROOT/pomelo-compositor/pomelo-compositor"
+	make -C "$ROOT/pomelo-compositor" \
+		LDFLAGS="-Wl,-rpath,/usr/lib/$MA/pomelo-compositor" >/dev/null
+	install -Dm755 "$ROOT/pomelo-compositor/pomelo-compositor" \
+		"$B/pomelo-compositor/usr/bin/pomelo-compositor"
+	mkdir -p "$B/pomelo-compositor/usr/share/doc/pomelo-compositor"
+	cp "$ROOT/packaging/third-party/wlroots/MIT-LICENSE.txt" "$ROOT/packaging/third-party/wlroots/NOTICE.txt" \
+		"$B/pomelo-compositor/usr/share/doc/pomelo-compositor/"
+fi
+
+# 3. 產生控制檔並打包
+grep -v '^#' "$ROOT/packaging/packages.txt" | while IFS=';' read -r name kind src depends recommends provides desc; do
+	[ -n "$name" ] || continue
+	dir="$B/$name"
+	if [ "$kind" = bin ] && [ ! -d "$dir" ]; then echo "  略過 $name（這個發行版沒有編）"; continue; fi
+	mkdir -p "$dir/DEBIAN" "$dir/usr/share/doc/$name"
+	depends=$(echo "$depends" | sed -e "s/@PKGVER@/$PKGVER/g" -e "s/@VERSION@/$VERSION/g")
+	arch=all
+	if [ "$kind" = bin ]; then
+		arch=$ARCH
+		# 去掉除錯符號，套件更小
+		find "$dir/usr" -type f \( -perm -u+x -o -name '*.so.*' -o -name '*.so' \) -exec sh -c \
+			'file -b "$1" | grep -q ELF && strip --strip-unneeded "$1"' _ {} \;
+		elfs=$(find "$dir/usr" -type f \( -perm -u+x -o -name '*.so.*' -o -name '*.so' \) -exec sh -c \
+			'file -b "$1" | grep -q ELF && echo "$1"' _ {} \;)
+		if [ -n "$elfs" ]; then
+			shdeps=$(cd "$B/src" && dpkg-shlibdeps -O -l"$LIB" $elfs 2>/dev/null | sed 's/^shlibs:Depends=//')
+			depends=$(printf '%s%s%s' "$shdeps" "${depends:+${shdeps:+, }}" "$depends")
+		fi
+	fi
+	# /etc 底下的檔案標為設定檔，使用者修改過的不會被升級蓋掉
+	if [ -d "$dir/etc" ]; then
+		(cd "$dir" && find etc -type f | sed 's|^|/|') > "$dir/DEBIAN/conffiles"
+	fi
+	# 安裝／移除時執行的腳本（packaging/scripts/<套件>.postinst 等）
+	for m in preinst postinst prerm postrm; do
+		[ -f "$ROOT/packaging/scripts/$name.$m" ] && install -m755 "$ROOT/packaging/scripts/$name.$m" "$dir/DEBIAN/$m"
+	done
+	# 共用函式庫：安裝後更新連結器快取
+	if [ "$name" = libpomelo0 ]; then
+		echo "activate-noawait ldconfig" > "$dir/DEBIAN/triggers"
+		printf 'libpomelo 0 libpomelo0 (>= %s)\n' "$VERSION" > "$dir/DEBIAN/shlibs"
+	fi
+	size=$(du -sk --exclude=DEBIAN "$dir" | cut -f1)
+	{
+		echo "Package: $name"
+		echo "Version: $PKGVER"
+		echo "Architecture: $arch"
+		echo "Maintainer: $MAINT"
+		echo "Installed-Size: $size"
+		[ -n "$depends" ] && echo "Depends: $depends"
+		[ -n "$recommends" ] && echo "Recommends: $recommends"
+		suggests=$(awk -F';' -v n="$name" '!/^#/ && $1 == n { print $2; exit }' "$ROOT/packaging/suggests.txt")
+		[ -n "$suggests" ] && echo "Suggests: $suggests"
+		[ -n "$provides" ] && echo "Provides: $provides"
+		echo "Homepage: $HOMEPAGE"
+		echo "Section: x11"
+		echo "Priority: optional"
+		echo "Description: $desc"
+		echo " Pomelo 是輕量、省資源的 X11 桌面。"
+		echo " 這個套件是其中的一個元件，可以單獨安裝，"
+		echo " 或安裝 pomelo-desktop 取得完整桌面。"
+	} > "$dir/DEBIAN/control"
+	printf 'Pomelo %s\n' "$VERSION" > "$dir/usr/share/doc/$name/README"
+	# 授權（Debian 的 copyright 格式；GPLv3 全文在系統的 /usr/share/common-licenses/GPL-3）
+	{
+		echo "Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/"
+		echo "Upstream-Name: Pomelo"
+		echo "Upstream-Contact: pake <pake@fedora.tw>"
+		echo "Source: $HOMEPAGE"
+		echo
+		echo "Files: *"
+		echo "Copyright: 2026 pake <pake@fedora.tw>（$HOMEPAGE）"
+		echo "License: GPL-3+"
+		echo " This program is free software: you can redistribute it and/or modify"
+		echo " it under the terms of the GNU General Public License as published by"
+		echo " the Free Software Foundation, either version 3 of the License, or"
+		echo " (at your option) any later version."
+		echo " ."
+		echo " This program is distributed in the hope that it will be useful,"
+		echo " but WITHOUT ANY WARRANTY; without even the implied warranty of"
+		echo " MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the"
+		echo " GNU General Public License for more details."
+		echo " ."
+		echo " On Debian systems, the full text of the GNU General Public License"
+		echo " version 3 can be found in the file /usr/share/common-licenses/GPL-3."
+		if [ "$name" = pomelo-pdf ]; then
+			echo
+			echo "Files: pomelo-pdf/pdf-tables.c"
+			echo "Copyright: 2002-2019 Adobe (http://www.adobe.com/)"
+			echo "Comment: 字形名稱對照表取自 Adobe Glyph List"
+			echo "License: BSD-3-Clause"
+			sed -n '/^Redistribution/,$p' "$ROOT/pomelo-pdf/AGL-LICENSE.txt" | sed -e 's/^$/./' -e 's/^/ /'
+		fi
+		if [ "$name" = libpomelo0 ] || [ "$name" = pomelo-viewer ] || [ "$name" = pomelo-paint ]; then
+			echo
+			echo "Files: libpomelo/third-party/nanosvg.h libpomelo/third-party/nanosvgrast.h"
+			echo "Copyright: 2013-2014 Mikko Mononen <memon@inside.org>"
+			echo "Comment: 畫 SVG 用的 nanosvg（原始碼內嵌，沒有修改）"
+			echo "License: Zlib"
+			sed -n '/^This software is provided/,$p' "$ROOT/libpomelo/third-party/nanosvg-LICENSE.txt" | sed -e 's/^$/./' -e 's/^/ /'
+		fi
+		if [ "$name" = pomelo-input ]; then
+			echo
+			echo "Files: pomelo-input/third-party/rime_api.h"
+			echo "Copyright: 2011-2014 RIME Developers"
+			echo "Comment: librime 的 API 標頭檔（librime 執行時才用 dlopen 載入，沒有包在這個套件裡）"
+			echo "License: BSD-3-Clause"
+			sed -n '/^Redistribution/,$p' "$ROOT/pomelo-input/third-party/librime-LICENSE.txt" | sed -e 's/^$/./' -e 's/^/ /'
+		fi
+		if [ "$name" = pomelo-assistant ]; then
+			echo
+			echo "Files: pomelo-assistant/zh-data.c"
+			echo "Copyright: OpenCC 的作者群（BYVoid 與其他貢獻者）；Unicode, Inc."
+			echo "Comment: 語音輸入的簡轉繁對照表取自 OpenCC，漢字讀音取自 Unicode 的 Unihan 資料庫"
+			echo "License: Apache-2.0 and Unicode-3.0"
+			echo
+			echo "License: Apache-2.0"
+			echo " On Debian systems, the full text of the Apache License version 2.0"
+			echo " can be found in the file /usr/share/common-licenses/Apache-2.0."
+			echo
+			echo "License: Unicode-3.0"
+			sed -n '/^UNICODE LICENSE V3/,$p' "$ROOT/pomelo-assistant/third-party/Unicode-LICENSE.txt" | sed -e 's/^$/./' -e 's/^/ /'
+		fi
+		if [ "$name" = pomelo-compositor ]; then
+			echo
+			echo "Files: usr/lib/*/pomelo-compositor/*.so*"
+			echo "Copyright: 2017, 2018 Drew DeVault; 2014 Jari Vetoniemi; 2023 The wlroots contributors"
+			echo "Comment: 私有附帶 wlroots（五個發行版釘死同一版本，不依賴各自的系統套件）；在系統 wayland-server／"
+			echo " pixman 版本太舊的發行版上，這裡也可能包含 meson wrap fallback 自己編的 wayland／libdrm／"
+			echo " pixman，同屬 MIT／MIT 風格授權，一併涵蓋"
+			echo "License: MIT"
+			sed -n '/^Permission is hereby/,$p' "$ROOT/packaging/third-party/wlroots/MIT-LICENSE.txt" | sed -e 's/^$/./' -e 's/^/ /'
+		fi
+	} > "$dir/usr/share/doc/$name/copyright"
+	dpkg-deb --root-owner-group --build "$dir" "$D/${name}_${PKGVER}_${arch}.deb" >/dev/null
+	echo "  $(basename "$D/${name}_${PKGVER}_${arch}.deb")"
+done
+
+echo "完成：$(ls "$D" | wc -l) 個套件在 dist/$DD/"

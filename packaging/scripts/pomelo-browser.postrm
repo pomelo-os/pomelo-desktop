@@ -1,0 +1,8 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -e
+if [ "$1" = purge ]; then
+	rm -f /etc/apparmor.d/local/pomelo-browser
+	rmdir /etc/apparmor.d/local 2>/dev/null || true
+fi
+exit 0

@@ -1,0 +1,15 @@
+wlroots 0.17.1（https://gitlab.freedesktop.org/wlroots/wlroots）
+為了讓五個發行版（Ubuntu 22.04/24.04/26.04、Fedora 44、Rocky 9.6）都用同一個版本、避免各自系統套件版本
+不一致造成 API 不相容，pomelo-compositor 套件自己從原始碼編譯一份 libwlroots，不依賴各發行版的系統套件
+（Rocky 9 的 EPEL 甚至根本沒有這個套件）。
+
+授權：MIT（全文見 MIT-LICENSE.txt，原文件名 LICENSE，逐字複製）。
+Copyright (c) 2017, 2018 Drew DeVault；Copyright (c) 2014 Jari Vetoniemi；Copyright (c) 2023 The wlroots contributors。
+對應的原始碼在 Pomelo 的原始碼包裡（packaging/third-party/wlroots-0.17.1.tar.gz），也可以從上面的網址取得
+（這份副本下載自 Ubuntu 套件庫的 orig tarball：
+http://archive.ubuntu.com/ubuntu/pool/universe/w/wlroots/wlroots_0.17.1.orig.tar.gz，
+內容跟上游原始碼一致，只是比較好取得）。
+
+wlroots 本身依賴的 pixman、libdrm、wayland、wayland-protocols、xkbcommon、libinput、libseat、
+libdisplay-info 等函式庫，繼續使用各發行版本來就有的系統套件（這些在五個發行版上都是穩定、長年存在的
+基礎桌面函式庫），只有 wlroots 這個套件本身的 .so 隨 pomelo-compositor 私有附帶。

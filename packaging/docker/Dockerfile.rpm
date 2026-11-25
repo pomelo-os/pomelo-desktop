@@ -1,0 +1,89 @@
+# Pomelo 編譯環境（Fedora、Rocky／RHEL 9 系 amd64），產生 .rpm
+#   docker build -t pomelo-build-rpm:fedora44 --build-arg BASE=fedora:44 -f packaging/docker/Dockerfile.rpm packaging/docker
+#   docker build -t pomelo-build-rpm:rocky9.8 --build-arg BASE=rockylinux/rockylinux:9.8 -f packaging/docker/Dockerfile.rpm packaging/docker
+#   docker run --rm -v "$PWD":/src -u $(id -u):$(id -g) -e HOME=/tmp pomelo-build-rpm:fedora44 ./packaging/build-rpm.sh
+ARG BASE=fedora:44
+FROM ${BASE}
+# Rocky／RHEL 9：libchewing、brightnessctl 在 EPEL，xcb-util-keysyms-devel 在 CRB
+RUN if grep -q '"rhel' /etc/os-release || grep -q 'ID_LIKE=.*rhel' /etc/os-release; then \
+      dnf -y install epel-release dnf-plugins-core && dnf config-manager --set-enabled crb; fi \
+ && dnf -y install gcc make pkgconf-pkg-config rpm-build file findutils tar gzip which binutils \
+      libX11-devel libXext-devel libXrandr-devel libXcomposite-devel libXft-devel fontconfig-devel \
+      cairo-devel libjpeg-turbo-devel pam-devel dbus-devel polkit-devel glib2-devel openssl-devel \
+      libxcb-devel xcb-util-keysyms-devel libchewing-devel \
+      giflib-devel libwebp-devel libarchive-devel mpg123-devel libsndfile-devel pulseaudio-libs-devel \
+      libXcursor-devel libXfixes-devel freerdp-devel zlib-devel \
+ && (dnf -y install xcb-imdkit-devel || true) \
+ && dnf clean all
+# Rocky／RHEL 9 沒有 xcb-imdkit（注音輸入法的 XIM 協定）：從原始碼編譯，裝在 /opt/xcb-imdkit，
+# 打包時把它的共用函式庫一起放進 pomelo-input（/usr/lib64/pomelo-input/）
+RUN if ! pkg-config --exists xcb-imdkit; then \
+      dnf -y install cmake extra-cmake-modules xcb-util-devel uthash-devel \
+      && curl -fsSL https://github.com/fcitx/xcb-imdkit/archive/refs/tags/1.0.9.tar.gz | tar xz -C /tmp \
+      && cmake -S /tmp/xcb-imdkit-1.0.9 -B /tmp/xb -DCMAKE_INSTALL_PREFIX=/opt/xcb-imdkit -DCMAKE_BUILD_TYPE=Release \
+      && cmake --build /tmp/xb -j4 && cmake --install /tmp/xb && rm -rf /tmp/xb /tmp/xcb-imdkit-1.0.9 && dnf clean all; fi
+
+# pomelo-compositor：wlroots 不依賴各發行版系統套件（Rocky 9 的 EPEL 根本沒有這個套件），
+# 自己從原始碼編譯一份裝到 /opt/wlroots，五個發行版都用同一個版本，見
+# packaging/third-party/wlroots/NOTICE.txt。核心建置相依先盡量裝，libseat／libdisplay-info
+# 在 Rocky 9 的 EPEL 不一定有，缺了用 || true 跳過、讓 meson 的 auto/optional 相依自己判斷
+# 有沒有。libliftoff（硬體 overlay 直接 scanout 的效能優化、純屬可選）故意整個不裝：它在
+# wlroots meson.build 裡沒有獨立的 disable 選項，只能靠「裝不到就自動停用」，較新發行版裝的
+# libliftoff 版本 API 跟 wlroots 0.17.1 原始碼裡寫死呼叫的介面可能不相容，不值得為一個效能
+# 優化去追版本相容性（在 Ubuntu 26.04 上已經遇到這個問題）。
+# hwdata 套件本身沒有 pkgconfig 檔，wlroots 的 backend/drm/meson.build 用
+# dependency('hwdata') 找不到就直接整個跳過 DRM backend（不會報錯，只會悄悄裝出
+# 一份開不了真實螢幕的 compositor）：要裝 hwdata-devel 才有 /usr/share/pkgconfig/hwdata.pc。
+RUN dnf -y install meson ninja-build \
+      wayland-devel wayland-protocols-devel libxkbcommon-devel pixman-devel \
+      libdrm-devel libinput-devel \
+      mesa-libgbm-devel mesa-libEGL-devel mesa-libGLES-devel \
+      libcap-devel systemd-devel \
+      xcb-util-wm-devel xcb-util-image-devel xcb-util-renderutil-devel \
+      xorg-x11-server-Xwayland xorg-x11-server-Xwayland-devel hwdata hwdata-devel \
+ && (dnf -y install libseat-devel || true) \
+ && (dnf -y install libdisplay-info-devel || true) \
+ && dnf clean all
+# Rocky 9.6 系統的 wayland-server（1.21）／pixman（0.40）比 wlroots 0.17.1 要求的新版本舊
+# （>=1.22／>=0.42）。wlroots 的 meson.build 對這幾個相依本來就寫了 fallback 機制：系統版本
+# 不夠就改抓原始碼、當 meson subproject 一起編，裝進同一個 /opt/wlroots/lib64，省掉另外維護
+# 一套「依發行版決定要不要編 wayland」的邏輯。這裡固定裝好 wrap 檔＋編譯相依，系統版本夠新
+# 的發行版（Fedora）fallback 不會被觸發、完全不影響。wayland subproject 的 meson.build 要求
+# meson>=0.64，系統 dnf 裝的 meson 可能太舊，用 pip 裝新版蓋過去。
+RUN dnf -y install python3-pip expat-devel libffi-devel libxml2-devel libpciaccess-devel \
+ && (pip3 install --quiet --no-cache-dir --break-system-packages "meson>=1.3" \
+      || pip3 install --quiet --no-cache-dir "meson>=1.3") \
+ && dnf clean all
+ENV PKG_CONFIG_PATH=/opt/wlroots/lib64/pkgconfig
+# 新版 GCC（如 Fedora 44 的 GCC 14）對 wlroots 原始碼裡的 calloc 參數順序／switch 列舉
+# 處理會發出 -Werror；舊版 GCC 根本沒有這些警告選項，直接傳 -Wno-error=xxx 反而會因為
+# 「找不到這個警告」本身炸掉，所以先逐一探測編譯器支援哪些再組 c_args。
+# LDFLAGS 的 $ORIGIN rpath：fallback 編出來的 wayland/pixman .so 跟 libwlroots.so 裝在
+# 同一個目錄，讓 libwlroots.so 自己能在「不管最後被複製到哪個目錄」都找到同目錄的這些 .so；
+# 系統版本夠新、fallback 沒被觸發時這個 rpath 不影響任何事。
+# 套用自己的 patch（說明寫在 patch 檔開頭）：override-redirect 視窗不放進 _NET_CLIENT_LIST
+COPY wlroots-0.17.1-client-list-no-override-redirect.patch /tmp/
+RUN echo 'int main(void){return 0;}' > /tmp/t.c \
+ && EXTRA_CARGS="" \
+ && for w in calloc-transposed-args switch; do \
+      if cc -Wno-error=$w -c /tmp/t.c -o /tmp/t.o >/dev/null 2>&1; then \
+        EXTRA_CARGS="$EXTRA_CARGS -Wno-error=$w"; \
+      fi; \
+    done \
+ && echo "$EXTRA_CARGS" > /tmp/wlroots-cargs \
+ && curl -fsSL -o /tmp/wlroots.tar.gz \
+      http://archive.ubuntu.com/ubuntu/pool/universe/w/wlroots/wlroots_0.17.1.orig.tar.gz \
+ && cd /tmp && tar xf wlroots.tar.gz && cd wlroots-0.17.1 \
+ && patch -p1 < /tmp/wlroots-0.17.1-client-list-no-override-redirect.patch \
+ && mkdir -p subprojects \
+ && for p in wayland libdrm pixman wayland-protocols; do meson wrap install $p >/dev/null; done \
+ && LDFLAGS='-Wl,-rpath,$ORIGIN,--enable-new-dtags' meson setup build \
+      --prefix=/opt/wlroots --libdir=lib64 --buildtype=release \
+      -Dxwayland=enabled -Dexamples=false -Drenderers=gles2 -Dbackends=auto \
+      -Dallocators=gbm -Dsession=auto -Dxcb-errors=disabled \
+      -Dc_args="$(cat /tmp/wlroots-cargs)" \
+ && ninja -C build install \
+ && cd / && rm -rf /tmp/wlroots.tar.gz /tmp/wlroots-0.17.1 /tmp/wlroots-cargs /tmp/t.c /tmp/t.o /tmp/wlroots-0.17.1-client-list-no-override-redirect.patch
+# 小柚瀏覽器（pomelo-browser）：網頁引擎用系統的 WebKitGTK 6.0（Rocky 9 只有舊的 GTK3 版，裝不到就略過瀏覽器）
+RUN (dnf -y install webkitgtk6.0-devel gtk4-devel || true) && dnf clean all
+WORKDIR /src

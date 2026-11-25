@@ -1,0 +1,10 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# 載入小柚瀏覽器的 AppArmor 設定（沒有它，Ubuntu 24.04 起網頁沙箱起不來、瀏覽器打不開）
+set -e
+if [ "$1" = configure ] && [ -f /etc/apparmor.d/pomelo-browser ] && command -v apparmor_parser >/dev/null 2>&1; then
+	if aa-enabled --quiet 2>/dev/null || [ -d /sys/kernel/security/apparmor ]; then
+		apparmor_parser -r -T -W /etc/apparmor.d/pomelo-browser || true
+	fi
+fi
+exit 0

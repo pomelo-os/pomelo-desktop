@@ -1,0 +1,5 @@
+# 移除前：如果現在用的是 Pomelo 登入畫面，先換回原本的（GDM、LightDM、SDDM），免得下次開機沒有登入畫面
+if [ "$1" -eq 0 ] && /usr/sbin/pomelo-dm-switch status 2>/dev/null | grep -q '/usr/sbin/pomelo-dm$'; then
+	/usr/sbin/pomelo-dm-switch off || echo "警告：找不到其他登入管理員，下次開機將沒有圖形登入畫面（可用文字登入後安裝 gdm 或 lightdm）" >&2
+fi
+exit 0

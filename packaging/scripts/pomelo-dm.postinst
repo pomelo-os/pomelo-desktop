@@ -1,0 +1,23 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# 建立登入畫面用的系統帳號與資料夾；不會自動換掉目前的登入管理員（要換請執行 sudo pomelo-dm-switch on）
+set -e
+if [ "$1" = configure ]; then
+	if ! getent passwd pomelo-greeter >/dev/null; then
+		adduser --system --group --no-create-home --home /var/lib/pomelo-dm --shell /usr/sbin/nologin \
+			--gecos "Pomelo 登入畫面" --quiet pomelo-greeter
+	fi
+	# 登入畫面要能用 video 群組（有些顯示卡驅動需要）
+	adduser --quiet pomelo-greeter video >/dev/null 2>&1 || true
+	install -d -m 755 -o root -g root /var/lib/pomelo-dm
+	# 使用者的桌布與頭像：只有 root 與登入畫面讀得到（家目錄可能是別人不能讀的）
+	install -d -m 750 -o root -g pomelo-greeter /var/lib/pomelo-dm/users
+	chgrp -R pomelo-greeter /var/lib/pomelo-dm/users 2>/dev/null || true
+	find /var/lib/pomelo-dm/users -type f -exec chmod 640 {} + 2>/dev/null || true
+	install -d -m 755 -o pomelo-greeter -g pomelo-greeter /var/lib/pomelo-dm/greeter
+	command -v systemctl >/dev/null 2>&1 && systemctl daemon-reload >/dev/null 2>&1 || true
+	if [ "$(cat /etc/X11/default-display-manager 2>/dev/null)" != /usr/sbin/pomelo-dm ]; then
+		echo "Pomelo 登入畫面已安裝。先試用：sudo pomelo-dm-switch try；改為每次開機使用：sudo pomelo-dm-switch on"
+	fi
+fi
+exit 0

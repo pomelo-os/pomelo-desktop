@@ -1,0 +1,6 @@
+/* 短篇說明文件的 PDF：A4、頁碼，不每節換頁 */
+@page { size: A4; margin: 18mm 16mm 20mm;
+	@bottom-center { content: counter(page); color: #6e6e73; font-size: 9pt; font-family: "Noto Sans CJK TC", sans-serif; } }
+body { padding: 0; font-size: 10.5pt; line-height: 1.7; }
+h1, h2, h3 { break-after: avoid; }
+table, figure, pre, .key { break-inside: avoid; }

@@ -1,0 +1,53 @@
+wlroots 0.17.1 的 xwm 把所有已顯示的 XWayland 視窗都放進 _NET_CLIENT_LIST，包括選單、
+提示框、鎖定畫面這類 override-redirect 視窗。EWMH 的這份清單只該有視窗管理器管理的視窗
+（舊的 pomelo-wm 也是這樣），pomelo-panel／pomelo-system／pomelo-assistant 都靠它列出
+「開著的程式」，結果鎖定畫面、右鍵選單被當成程式出現在 Dock 上。
+
+（第二個修正，xwayland/selection/dnd.c，0.42 階段 4 加的）Wayland 程式把東西拖到 XWayland 視窗上放下時，
+wlroots 0.17.1 在滑鼠放開、wlr_drag 銷毀的同時把 drag_focus 清掉並送 XdndLeave，接著 X 目標來讀 XdndSelection 時
+因為「沒有 xwayland surface 有焦點」被拒絕，所以放下之後什麼都收不到。放下（drag->dropped）之後游標焦點被清掉時
+保留 drag_focus（來源銷毀時 seat_handle_drag_source_destroy 才會重設）。X 程式拖到原生 Wayland 視窗的方向
+wlroots 完全沒做，pomelo-compositor 自己在 xdnd.c 補。
+
+--- a/xwayland/xwm.c	2026-10-28 09:18:47.788854531 +0000
++++ b/xwayland/xwm.c	2026-10-28 09:18:48.078851070 +0000
+@@ -246,7 +246,8 @@
+ 	size_t mapped_surfaces = 0;
+ 	struct wlr_xwayland_surface *surface;
+ 	wl_list_for_each(surface, &xwm->surfaces, link) {
+-		if (surface->surface != NULL && surface->surface->mapped) {
++		if (surface->surface != NULL && surface->surface->mapped &&
++				!surface->override_redirect) {
+ 			mapped_surfaces++;
+ 		}
+ 	}
+@@ -258,7 +259,8 @@
+ 
+ 	size_t index = 0;
+ 	wl_list_for_each(surface, &xwm->surfaces, link) {
+-		if (surface->surface != NULL && surface->surface->mapped) {
++		if (surface->surface != NULL && surface->surface->mapped &&
++				!surface->override_redirect) {
+ 			windows[index++] = surface->window_id;
+ 		}
+ 	}
+--- a/xwayland/selection/dnd.c	2023-12-22 02:42:26.000000000 +0800
++++ b/xwayland/selection/dnd.c	2026-11-20 17:57:00.510919014 +0800
+@@ -253,6 +253,17 @@
+ 		return;
+ 	}
+ 
++	// The drag is over (the pointer button was released, wlr_drag is being
++	// destroyed) and the pointer focus is cleared: when the Wayland client
++	// dropped on an X11 window, the target is still reading the data source
++	// via XdndSelection, so keep the drag focus (it is reset when the source
++	// is destroyed, see seat_handle_drag_source_destroy). Without this the X11
++	// client gets XdndLeave right after XdndDrop and the selection request is
++	// refused ("no xwayland surface focused").
++	if (focus == NULL && drag->dropped) {
++		return;
++	}
++
+ 	if (xwm->drag_focus != NULL) {
+ 		wlr_data_source_dnd_action(drag->source,
+ 			WL_DATA_DEVICE_MANAGER_DND_ACTION_NONE);

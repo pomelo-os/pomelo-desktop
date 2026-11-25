@@ -1,0 +1,250 @@
+xcb-imdkit 1.0.9（https://github.com/fcitx/xcb-imdkit）
+Rocky Linux／RHEL 9 沒有這個函式庫，pomelo-input 套件附了一份編譯好的 libxcb-imdkit.so.1（沒有修改）。
+
+授權：LGPL-2.1-only（全文見 LGPL-2.1-only.txt）。Copyright 2014-2020 Weng Xuetian <wengxt@gmail.com>。
+對應的原始碼在 Pomelo 的原始碼包裡（packaging/third-party/xcb-imdkit-1.0.9.tar.gz），也可以從上面的網址取得。
+
+其中一些檔案來自 Xlib、libiconv 與 uthash，保留原本的版權與授權聲明如下：
+
+======================================================================
+src/xlibi18n/XlcPubI.h
+src/xlibi18n/lcCharSet.c
+======================================================================
+Copyright 1992, 1993 by TOSHIBA Corp.
+
+Permission to use, copy, modify, and distribute this software and its
+documentation for any purpose and without fee is hereby granted, provided
+that the above copyright notice appear in all copies and that both that
+copyright notice and this permission notice appear in supporting
+documentation, and that the name of TOSHIBA not be used in advertising
+or publicity pertaining to distribution of the software without specific,
+written prior permission. TOSHIBA make no representations about the
+suitability of this software for any purpose.  It is provided "as is"
+without express or implied warranty.
+
+TOSHIBA DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+TOSHIBA BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+SOFTWARE.
+
+Author: Katsuhisa Yano	TOSHIBA Corp.
+			   	mopi@osa.ilab.toshiba.co.jp
+
+======================================================================
+src/xlibi18n/XlcPublic.h
+======================================================================
+Copyright 1992, 1993 by TOSHIBA Corp.
+
+Permission to use, copy, modify, and distribute this software and its
+documentation for any purpose and without fee is hereby granted, provided
+that the above copyright notice appear in all copies and that both that
+copyright notice and this permission notice appear in supporting
+documentation, and that the name of TOSHIBA not be used in advertising
+or publicity pertaining to distribution of the software without specific,
+written prior permission. TOSHIBA make no representations about the
+suitability of this software for any purpose.  It is provided "as is"
+without express or implied warranty.
+
+TOSHIBA DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+TOSHIBA BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+SOFTWARE.
+
+Author: Katsuhisa Yano	TOSHIBA Corp.
+			   	mopi@osa.ilab.toshiba.co.jp
+
+
+Copyright 1995 by FUJITSU LIMITED
+This is source code modified by FUJITSU LIMITED under the Joint
+Development Agreement for the CDE/Motif PST.
+
+Modifier: Takanori Tateno   FUJITSU LIMITED
+
+
+
+Most of this API is documented in i18n/Framework.PS
+
+======================================================================
+src/xlibi18n/lcCT.c
+======================================================================
+Copyright 1992, 1993 by TOSHIBA Corp.
+
+Permission to use, copy, modify, and distribute this software and its
+documentation for any purpose and without fee is hereby granted, provided
+that the above copyright notice appear in all copies and that both that
+copyright notice and this permission notice appear in supporting
+documentation, and that the name of TOSHIBA not be used in advertising
+or publicity pertaining to distribution of the software without specific,
+written prior permission. TOSHIBA make no representations about the
+suitability of this software for any purpose.  It is provided "as is"
+without express or implied warranty.
+
+TOSHIBA DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+TOSHIBA BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+SOFTWARE.
+
+Author: Katsuhisa Yano	TOSHIBA Corp.
+			   	mopi@osa.ilab.toshiba.co.jp
+
+
+Copyright 1995 by FUJITSU LIMITED
+This is source code modified by FUJITSU LIMITED under the Joint
+Development Agreement for the CDE/Motif PST.
+
+Modifier: Takanori Tateno   FUJITSU LIMITED
+
+
+
+ 2000
+ Modifier: Ivan Pascal     The XFree86 Project
+ Modifier: Bruno Haible    The XFree86 Project
+
+======================================================================
+src/xlibi18n/lcUTF8.c
+======================================================================
+****************************************************************
+
+            Copyright 1993 by SunSoft, Inc.
+            Copyright 1999-2000 by Bruno Haible
+
+Permission to use, copy, modify, distribute, and sell this software
+and its documentation for any purpose is hereby granted without fee,
+provided that the above copyright notice appear in all copies and
+that both that copyright notice and this permission notice appear
+in supporting documentation, and that the names of SunSoft, Inc. and
+Bruno Haible not be used in advertising or publicity pertaining to
+distribution of the software without specific, written prior
+permission.  SunSoft, Inc. and Bruno Haible make no representations
+about the suitability of this software for any purpose.  It is
+provided "as is" without express or implied warranty.
+
+SunSoft Inc. AND Bruno Haible DISCLAIM ALL WARRANTIES WITH REGARD
+TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS, IN NO EVENT SHALL SunSoft, Inc. OR Bruno Haible BE LIABLE
+FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+****************************************************************
+
+This file contains:
+
+I. Conversion routines CompoundText/CharSet <--> Unicode/UTF-8.
+
+   Used for three purposes:
+     1. The UTF-8 locales, see below.
+     2. Unicode aware applications for which the use of 8-bit character
+        sets is an anachronism.
+     3. For conversion from keysym to locale encoding.
+
+II. Conversion files for an UTF-8 locale loader.
+    Supports: all locales with codeset UTF-8.
+    How: Provides converters for UTF-8.
+    Platforms: all systems.
+
+The loader itself is located in lcUTF8.c.
+
+
+The conversion from UTF-8 to CompoundText is realized in a very
+conservative way. Recall that CompoundText data is used for inter-client
+communication purposes. We distinguish three classes of clients:
+- Clients which accept only those pieces of CompoundText which belong to
+  the character set understood by the current locale.
+  (Example: clients which are linked to an older X11 library.)
+- Clients which accept CompoundText with multiple character sets and parse
+  it themselves.
+  (Example: emacs, xemacs.)
+- Clients which rely entirely on the X{mb,wc}TextPropertyToTextList
+  functions for the conversion of CompoundText to their current locale's
+  multi-byte/wide-character format.
+For best interoperation, the UTF-8 to CompoundText conversion proceeds as
+follows. For every character, it first tests whether the character is
+representable in the current locale's original (non-UTF-8) character set.
+If not, it goes through the list of predefined character sets for
+CompoundText and tests if the character is representable in that character
+set. If so, it encodes the character using its code within that character
+set. If not, it uses an UTF-8-in-CompoundText encapsulation. Since
+clients of the first and second kind ignore such encapsulated text,
+this encapsulation is kept to a minimum and terminated as early as possible.
+
+In a distant future, when clients of the first and second kind will have
+disappeared, we will be able to stuff UTF-8 data directly in CompoundText
+without first going through the list of predefined character sets.
+
+======================================================================
+src/xlibi18n/lcUniConv/COPYRIGHT（這個資料夾的檔案）
+======================================================================
+This notice applies to the files in this directory. They are taken from
+the libiconv-1.1 package, which is covered by the LGPL license. The files
+in this directory have been placed under the following copyright, with
+permission from the Free Software Foundation.
+
+
+Copyright (c) 1999-2000  Free Software Foundation, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+FREE SOFTWARE FOUNDATION BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Except as contained in this notice, the name of the Free Software Foundation
+shall not be used in advertising or otherwise to promote the sale, use or
+other dealings in this Software without prior written authorization from the
+Free Software Foundation.
+
+
+Notes:
+
+1. This copyright applies only to the files in this directory, and not to
+the remaining files in libiconv.
+
+2. The Free Software Foundation does not encourage the use of the above
+license for newly written software.
+
+======================================================================
+uthash/uthash.h
+======================================================================
+Copyright (c) 2003-2009, Troy D. Hanson     http://uthash.sourceforge.net
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
+OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
