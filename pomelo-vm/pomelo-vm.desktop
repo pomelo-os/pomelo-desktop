@@ -1,0 +1,25 @@
+[Desktop Entry]
+Name=Virtual Machines
+Name[zh_TW]=虛擬機器
+Name[zh_CN]=虚拟机
+Name[ja]=仮想マシン
+Name[ko]=가상 머신
+Name[fr]=Machines virtuelles
+Name[de]=Virtuelle Maschinen
+Name[es]=Máquinas virtuales
+Name[it]=Macchine virtuali
+Name[pt_BR]=Máquinas virtuais
+Name[ru]=Виртуальные машины
+Name[vi]=Máy ảo
+Name[th]=เครื่องเสมือน
+Name[id]=Mesin Virtual
+GenericName=Virtual Machines
+GenericName[zh_TW]=虛擬機器
+Comment=用 QEMU／KVM 在這台電腦裡執行別的作業系統
+Comment[en]=Run other operating systems on this computer with QEMU/KVM
+Keywords=vm;virtual;machine;qemu;kvm;emulator;windows;linux;虛擬機;虛擬機器;模擬器;
+Exec=pomelo-vm
+Icon=pomelo-vm
+Type=Application
+Categories=System;Emulator;X-Pomelo-Productivity;
+StartupWMClass=pomelo-vm

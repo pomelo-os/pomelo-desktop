@@ -1,0 +1,26 @@
+[Desktop Entry]
+Name=Image Viewer
+Name[zh_TW]=看圖
+Name[zh_CN]=图片查看器
+Name[ja]=画像ビューア
+Name[ko]=이미지 뷰어
+Name[fr]=Visionneuse d'images
+Name[de]=Bildbetrachter
+Name[es]=Visor de imágenes
+Name[it]=Visualizzatore immagini
+Name[pt_BR]=Visualizador de Imagens
+Name[ru]=Просмотр изображений
+Name[vi]=Trình xem ảnh
+Name[th]=ตัวแสดงรูปภาพ
+Name[id]=Penampil Gambar
+GenericName=Image Viewer
+GenericName[zh_TW]=圖片檢視器
+Comment=看照片與圖片，可以縮放、旋轉、幻燈片
+Comment[en]=View photos and pictures: zoom, rotate, slideshow
+Keywords=image;picture;photo;viewer;png;jpg;jpeg;gif;webp;看圖;圖片;照片;相片;檢視;幻燈片;
+Exec=pomelo-viewer %F
+Icon=pomelo-viewer
+Type=Application
+Categories=Graphics;Viewer;
+MimeType=image/png;image/jpeg;image/heic;image/heif;image/avif;image/pjpeg;image/gif;image/webp;image/bmp;image/x-bmp;image/x-ms-bmp;image/x-portable-anymap;image/x-portable-pixmap;image/x-portable-graymap;image/x-portable-bitmap;image/tiff;image/svg+xml;
+StartupWMClass=pomelo-viewer

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- 健康檢查的帳號安全檢查（只讀）：系統設定經過 pkexec 執行 /usr/libexec/pomelo/pomelo-check-admin -->
+<policyconfig>
+  <vendor>Pomelo</vendor>
+  <vendor_url>https://fedora.tw</vendor_url>
+  <action id="tw.fedora.pomelo.check-admin">
+    <description>Check account and system security settings</description>
+    <description xml:lang="zh_TW">檢查帳號與系統的安全設定</description>
+    <description xml:lang="zh_CN">检查账号与系统的安全设置</description>
+    <message>Health check needs administrator permission to check accounts, sudo settings and setuid programs (read only).</message>
+    <message xml:lang="zh_TW">健康檢查需要管理員權限，才能檢查帳號密碼、sudo 設定與 setuid 程式（只會讀取，不會修改）。</message>
+    <message xml:lang="zh_CN">健康检查需要管理员权限，才能检查账号密码、sudo 设置与 setuid 程序（只会读取，不会修改）。</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/pomelo/pomelo-check-admin</annotate>
+  </action>
+</policyconfig>

@@ -1,0 +1,26 @@
+[Desktop Entry]
+Name=Writer
+Name[zh_TW]=文書處理器
+Name[zh_CN]=文字处理器
+Name[ja]=ワードプロセッサ
+Name[ko]=워드 프로세서
+Name[fr]=Traitement de texte
+Name[de]=Textverarbeitung
+Name[es]=Procesador de texto
+Name[it]=Elaboratore di testi
+Name[pt_BR]=Processador de texto
+Name[ru]=Текстовый процессор
+Name[vi]=Trình xử lý văn bản
+Name[th]=โปรแกรมประมวลผลคำ
+Name[id]=Pengolah Kata
+GenericName=Word Processor
+GenericName[zh_TW]=文書處理器
+Comment=開啟、編輯、存檔 Word（.docx）與 OpenDocument（.odt）文件
+Comment[en]=Open, edit and save Word (.docx) and OpenDocument (.odt) files
+Keywords=writer;word;docx;odt;document;文書;文件;word文件;
+Exec=pomelo-writer %f
+Icon=pomelo-writer
+Type=Application
+Categories=Office;WordProcessor;
+StartupWMClass=pomelo-writer
+MimeType=application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.oasis.opendocument.text;

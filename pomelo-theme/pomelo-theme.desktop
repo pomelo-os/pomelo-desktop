@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Appearance
+Name[zh_TW]=外觀
+Comment=深色模式、強調色、桌布與 Dock
+Keywords=theme;appearance;wallpaper;dark;外觀;主題;桌布;深色;
+Exec=pomelo-theme
+Icon=pomelo-theme
+Type=Application
+Categories=Settings;DesktopSettings;
+StartupWMClass=pomelo-theme

@@ -1,0 +1,18 @@
+[Desktop Entry]
+Name=Pomelo Terminal
+Name[zh_TW]=終端機
+GenericName=Terminal
+GenericName[zh_TW]=終端機
+Comment=Pomelo 的輕量終端機
+Keywords=shell;prompt;command;commandline;cmd;terminal;終端機;命令列;
+Exec=pomelo-terminal
+Icon=pomelo-terminal
+Type=Application
+Categories=System;TerminalEmulator;
+StartupWMClass=pomelo-terminal
+Actions=new-window;
+
+[Desktop Action new-window]
+Name=New Window
+Name[zh_TW]=新視窗
+Exec=pomelo-terminal

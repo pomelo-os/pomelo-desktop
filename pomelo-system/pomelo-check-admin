@@ -1,0 +1,44 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# pomelo-check-admin — 健康檢查「安全性」需要管理員權限的部分（系統設定經過 pkexec 以 root 執行）。
+# 只讀：不改任何東西。只輸出結論（帳號名稱、設定值、檔案路徑），密碼雜湊與檔案內容不會輸出。
+# 每行一項：代號<Tab>內容；最後一行 done<Tab>1（看到它才代表有跑完）。
+# POMELO_CHECK_ROOT：測試用的假根目錄（這時不執行 sshd -T、journalctl 這些看真實系統的指令）。
+R=${POMELO_CHECK_ROOT:-}
+T=$(printf '\t')
+
+# 1. 沒有密碼的帳號、老舊的密碼雜湊（MD5、DES）
+if [ -r "$R/etc/shadow" ]; then
+	awk -F: -v t="$T" '$2 == "" { print "empty_pw" t $1 }
+		$2 ~ /^\$1\$/ || ($2 != "" && $2 !~ /^[$!*]/) { print "weak_hash" t $1 }' "$R/etc/shadow"
+fi
+
+# 2. 用 sudo 不用密碼（NOPASSWD）：只輸出設定對象（帳號或 %群組）
+for f in "$R/etc/sudoers" "$R"/etc/sudoers.d/*; do
+	[ -f "$f" ] || continue
+	grep -v '^[[:space:]]*#' "$f" | grep -w 'NOPASSWD' | awk -v t="$T" '{ print "nopasswd" t $1 }'
+done | sort -u
+
+# 3. SSH 實際的設定（sshd -T 會把預設值、Include、Match 都算進去）
+if [ -z "$R" ] && command -v sshd >/dev/null 2>&1; then
+	sshd -T 2>/dev/null | awk -v t="$T" '$1 == "permitrootlogin" || $1 == "passwordauthentication" || $1 == "permitemptypasswords" { print "sshd_" $1 t $2 }'
+fi
+
+# 4. 不屬於任何套件、又可以取得最高權限（setuid）的程式；只看常被放東西的地方，不掃整顆硬碟
+for d in /usr/local /opt /tmp /var/tmp /dev/shm /srv; do
+	[ -d "$R$d" ] && find "$R$d" -xdev -type f -perm -4000 2>/dev/null
+done | while IFS= read -r f; do
+	p=${f#"$R"}
+	if command -v dpkg >/dev/null 2>&1; then dpkg -S "$p" >/dev/null 2>&1 && continue
+	elif command -v rpm >/dev/null 2>&1; then rpm -qf "$p" >/dev/null 2>&1 && continue
+	fi
+	printf 'suid\t%s\n' "$p"
+done
+
+# 5. 過去 24 小時 SSH 登入失敗的次數
+if [ -z "$R" ] && command -v journalctl >/dev/null 2>&1; then
+	n=$(journalctl -q --no-pager --since -24h _COMM=sshd 2>/dev/null | grep -c -E 'Failed password|Invalid user|authentication failure')
+	printf 'ssh_fail\t%s\n' "$n"
+fi
+
+printf 'done\t1\n'

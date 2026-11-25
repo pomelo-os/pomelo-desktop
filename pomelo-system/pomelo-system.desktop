@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=System Settings
+Name[zh_TW]=系統設定
+Comment=所有 Pomelo 設定與電腦資訊
+Keywords=settings;system;preferences;about;設定;系統;偏好設定;
+Exec=pomelo-system
+Icon=pomelo-system
+Type=Application
+Categories=Settings;System;
+StartupWMClass=pomelo-system
