@@ -1,0 +1,12 @@
+prefix=/usr/local
+libdir=/usr/local/lib
+includedir=${prefix}/include/pomelo
+
+Name: pomelo
+Description: Pomelo 桌面共用函式庫（繪圖、圖示、選單、設定、介面元件）
+Version: 0.42
+Requires: x11 xext xrandr cairo
+Requires.private: libjpeg
+Libs: -L${libdir} -lpomelo
+Libs.private: -lm
+Cflags: -I${includedir}

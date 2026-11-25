@@ -1,0 +1,774 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* check-sec.c — 安全性檢查。
+ * 不用權限的：安全性更新、防火牆、對網路開放的服務、SSH 設定、群組、自動登入、自動鎖定、磁碟加密、Secure Boot、
+ *   AppArmor／SELinux、登入時自動執行的程式、可疑的程式、沒有密碼保護的 SSH 私鑰、家目錄權限。
+ * 需要管理員權限的（flags 有 PM_CHK_ADMIN 才跑；經過 pkexec 執行 /usr/libexec/pomelo/pomelo-check-admin）：
+ *   沒有密碼的帳號、老舊的密碼雜湊、sudo 免密碼、SSH 實際設定、不屬於任何套件的 setuid 程式、SSH 登入失敗次數。
+ *   那支程式只輸出結論（帳號名稱、設定值），密碼雜湊與檔案內容不會離開它。 */
+#define _GNU_SOURCE
+#include "internal.h"
+#include "check-int.h"
+#include <ctype.h>
+#include <dirent.h>
+#include <grp.h>
+#include <pwd.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
+#include <time.h>
+
+#define ADMIN_HELPER "/usr/libexec/pomelo/pomelo-check-admin"
+
+/* ---- 對網路開放的服務（/proc/net/tcp、tcp6 的 LISTEN，不含只聽本機的） ---- */
+
+typedef struct { int port; unsigned long inode; } Listen;
+
+static int read_listen(const char *path, int v6, Listen *out, int n, int max)
+{
+	FILE *f = fopen(chk_path(path), "r");
+	if (!f) return n;
+	char line[512];
+	if (!fgets(line, sizeof line, f)) { fclose(f); return n; }
+	while (fgets(line, sizeof line, f) && n < max) {
+		char local[64], st[8];
+		unsigned long inode = 0;
+		if (sscanf(line, "%*s %63s %*s %7s %*s %*s %*s %*s %*s %lu", local, st, &inode) < 2 || strcmp(st, "0A")) continue;
+		char *colon = strrchr(local, ':');
+		if (!colon) continue;
+		*colon = 0;
+		int port = (int)strtol(colon + 1, NULL, 16);
+		/* 本機（127.x、::1、::ffff:127.x）不算 */
+		if (!v6 && strlen(local) == 8 && !strcmp(local + 6, "7F")) continue;
+		if (v6 && (!strcmp(local, "00000000000000000000000001000000") || (!strncmp(local, "0000000000000000FFFF0000", 24) && !strcmp(local + 30, "7F")))) continue;
+		int dup = 0;
+		for (int i = 0; i < n; i++) if (out[i].port == port) dup = 1;
+		if (dup) continue;
+		out[n].port = port;
+		out[n].inode = inode;
+		n++;
+	}
+	fclose(f);
+	return n;
+}
+
+static const struct { int port, level; const char *name, *why; } known_ports[] = {
+	{ 22, PM_CHK_INFO, "SSH", NULL },
+	{ 3389, PM_CHK_INFO, N_("遠端桌面（RDP）"), NULL },
+	{ 5900, PM_CHK_WARN, "VNC", N_("VNC 的密碼與畫面常常沒有加密") },
+	{ 23, PM_CHK_BAD, "Telnet", N_("Telnet 完全沒有加密，帳號密碼會被看光") },
+	{ 21, PM_CHK_WARN, "FTP", N_("FTP 沒有加密，帳號密碼會被看到") },
+	{ 2375, PM_CHK_BAD, N_("Docker 管理介面（沒有加密）"), N_("任何連得到這個埠的人都能完全控制這台電腦") },
+	{ 6379, PM_CHK_BAD, "Redis", N_("Redis 預設沒有密碼，常被拿來入侵") },
+	{ 27017, PM_CHK_BAD, "MongoDB", N_("資料庫直接開放給網路，常被勒索刪資料") },
+	{ 9200, PM_CHK_BAD, "Elasticsearch", N_("資料庫直接開放給網路，常被勒索刪資料") },
+	{ 11211, PM_CHK_BAD, "Memcached", N_("沒有密碼保護，也會被拿來攻擊別人") },
+	{ 5984, PM_CHK_WARN, "CouchDB", N_("資料庫直接開放給網路") },
+	{ 3306, PM_CHK_WARN, "MySQL／MariaDB", N_("資料庫直接開放給網路") },
+	{ 5432, PM_CHK_WARN, "PostgreSQL", N_("資料庫直接開放給網路") },
+	{ 445, PM_CHK_WARN, N_("Windows 檔案分享（SMB）"), N_("資料夾分享出去了；確認只在信任的網路上") },
+	{ 139, PM_CHK_WARN, N_("Windows 檔案分享（SMB）"), N_("資料夾分享出去了；確認只在信任的網路上") },
+	{ 111, PM_CHK_WARN, "rpcbind", N_("NFS 用的服務，通常不需要開放") },
+	{ 631, PM_CHK_INFO, N_("印表機分享（CUPS）"), NULL },
+	{ 80, PM_CHK_INFO, N_("網頁伺服器"), NULL },
+	{ 443, PM_CHK_INFO, N_("網頁伺服器"), NULL },
+	{ 8080, PM_CHK_INFO, N_("網頁伺服器"), NULL },
+	{ 5601, PM_CHK_WARN, "Kibana", N_("管理介面直接開放給網路") },
+	{ 9000, PM_CHK_INFO, N_("網頁伺服器"), NULL },
+	{ 8443, PM_CHK_INFO, N_("網頁伺服器"), NULL },
+	{ 8834, PM_CHK_INFO, "Nessus", NULL },
+	{ 3478, PM_CHK_INFO, "STUN／TURN", NULL },
+	{ 53, PM_CHK_INFO, "DNS", NULL },
+};
+
+static int port_info(int port, const char **name, const char **why)
+{
+	for (size_t i = 0; i < LEN(known_ports); i++)
+		if (known_ports[i].port == port) { *name = _(known_ports[i].name); *why = known_ports[i].why ? _(known_ports[i].why) : NULL; return known_ports[i].level; }
+	*name = NULL; *why = NULL;
+	return PM_CHK_INFO;
+}
+
+/* ---- sshd_config：取第一個出現的值（OpenSSH 的規則），sshd_config.d 先讀；Match 之後的不看 ---- */
+
+static void ssh_conf_file(const char *path, char *root, char *pass, char *empty, size_t n)
+{
+	FILE *f = fopen(chk_path(path), "r");
+	char line[512];
+	while (f && fgets(line, sizeof line, f)) {
+		char k[64], v[128];
+		if (sscanf(line, " %63s %127s", k, v) != 2 || k[0] == '#') continue;
+		if (!strcasecmp(k, "Match")) break;
+		if (!strcasecmp(k, "PermitRootLogin") && !root[0]) snprintf(root, n, "%s", v);
+		if (!strcasecmp(k, "PasswordAuthentication") && !pass[0]) snprintf(pass, n, "%s", v);
+		if (!strcasecmp(k, "PermitEmptyPasswords") && !empty[0]) snprintf(empty, n, "%s", v);
+	}
+	if (f) fclose(f);
+}
+
+static void ssh_config(char *root, char *pass, char *empty, size_t n)
+{
+	root[0] = pass[0] = empty[0] = 0;
+	struct dirent **list;
+	int k = scandir(chk_path("/etc/ssh/sshd_config.d"), &list, NULL, alphasort);
+	for (int i = 0; i < k; i++) {
+		if (strstr(list[i]->d_name, ".conf")) {
+			char p[512];
+			snprintf(p, sizeof p, "/etc/ssh/sshd_config.d/%s", list[i]->d_name);
+			ssh_conf_file(p, root, pass, empty, n);
+		}
+		free(list[i]);
+	}
+	if (k > 0) free(list);
+	ssh_conf_file("/etc/ssh/sshd_config", root, pass, empty, n);
+	if (!root[0]) snprintf(root, n, "prohibit-password");
+	if (!pass[0]) snprintf(pass, n, "yes");
+	if (!empty[0]) snprintf(empty, n, "no");
+}
+
+/* ---- 磁碟加密：/ 所在的裝置一路往下找有沒有 dm-crypt ---- */
+
+static int dev_encrypted(const char *blk, int depth)
+{
+	if (depth > 6) return 0;
+	char p[320], uuid[128];
+	snprintf(p, sizeof p, "/sys/block/%s/dm/uuid", blk);
+	if (chk_read(p, uuid, sizeof uuid) && !strncmp(uuid, "CRYPT-", 6)) return 1;
+	snprintf(p, sizeof p, "/sys/block/%s/slaves", blk);
+	DIR *d = opendir(chk_path(p));
+	struct dirent *e;
+	int enc = 0;
+	while (d && (e = readdir(d)) && !enc) if (e->d_name[0] != '.') enc = dev_encrypted(e->d_name, depth + 1);
+	if (d) closedir(d);
+	return enc;
+}
+
+static int root_encrypted(int *known)
+{
+	*known = 0;
+	struct stat st;
+	if (stat(chk_path("/"), &st)) return 0;
+	char p[128], link[256];
+	snprintf(p, sizeof p, "/sys/dev/block/%u:%u", major(st.st_dev), minor(st.st_dev));
+	ssize_t l = readlink(chk_path(p), link, sizeof link - 1);
+	if (l <= 0) return 0;   /* btrfs 子磁區等：st_dev 不是區塊裝置，判斷不了 */
+	link[l] = 0;
+	char *name = strrchr(link, '/');
+	if (!name) return 0;
+	*known = 1;
+	/* 分割區（sda2）的上層是整顆磁碟，加密層在分割區上面時看的是 dm 裝置，這裡從 dm 或分割區本身開始找 */
+	return dev_encrypted(name + 1, 0);
+}
+
+/* ---- SSH 私鑰有沒有密碼：OpenSSH 新格式看 ciphername，舊的 PEM 看 ENCRYPTED ---- */
+
+static int b64v(int c)
+{
+	if (c >= 'A' && c <= 'Z') return c - 'A';
+	if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+	if (c >= '0' && c <= '9') return c - '0' + 52;
+	return c == '+' ? 62 : c == '/' ? 63 : -1;
+}
+
+static int key_unencrypted(const char *path)
+{
+	FILE *f = fopen(path, "r");
+	if (!f) return 0;
+	char line[256], b64[400] = "";
+	int openssh = 0, pem = 0, enc = 0;
+	while (fgets(line, sizeof line, f)) {
+		if (strstr(line, "BEGIN OPENSSH PRIVATE KEY")) { openssh = 1; continue; }
+		if (strstr(line, "BEGIN") && strstr(line, "PRIVATE KEY")) { pem = 1; continue; }
+		if (pem && strstr(line, "ENCRYPTED")) enc = 1;
+		if (openssh && strlen(b64) < 200) { line[strcspn(line, "\r\n")] = 0; strncat(b64, line, sizeof b64 - strlen(b64) - 1); }
+	}
+	fclose(f);
+	if (pem) return !enc;
+	if (!openssh) return 0;
+	unsigned char bin[300];
+	int n = 0, acc = 0, bits = 0;
+	for (char *p = b64; *p && n < (int)sizeof bin; p++) {
+		int v = b64v((unsigned char)*p);
+		if (v < 0) continue;
+		acc = (acc << 6) | v; bits += 6;
+		if (bits >= 8) { bits -= 8; bin[n++] = (unsigned char)(acc >> bits); }
+	}
+	/* "openssh-key-v1\0" + uint32 長度 + ciphername */
+	if (n < 19 + 4 || memcmp(bin, "openssh-key-v1", 15)) return 0;
+	unsigned len = (unsigned)bin[15] << 24 | bin[16] << 16 | bin[17] << 8 | bin[18];
+	return len == 4 && !memcmp(bin + 19, "none", 4);
+}
+
+/* ---- 可疑的程式 ---- */
+
+static int in_tmp(const char *p)
+{
+	return !strncmp(p, "/tmp/", 5) || !strncmp(p, "/var/tmp/", 9) || !strncmp(p, "/dev/shm/", 9);
+}
+
+static const char *const miners[] = { "xmrig", "minerd", "kdevtmpfsi", "kinsing", "cpuminer", "xmr-stak", "nbminer", "t-rex", "lolminer", "phoenixminer" };
+
+static void suspicious(PmReport *r)
+{
+	char found[1024] = "";
+	int nbad = 0;
+	DIR *d = opendir(chk_path("/proc"));
+	struct dirent *e;
+	while (d && (e = readdir(d))) {
+		if (!isdigit((unsigned char)e->d_name[0])) continue;
+		char p[300], comm[64] = "", exe[512] = "", why[160] = "";
+		snprintf(p, sizeof p, "/proc/%s/comm", e->d_name);
+		if (!chk_read(p, comm, sizeof comm)) continue;
+		snprintf(p, sizeof p, "/proc/%s/exe", e->d_name);
+		ssize_t l = readlink(chk_path(p), exe, sizeof exe - 1);
+		if (l > 0) exe[l] = 0; else exe[0] = 0;
+		for (size_t i = 0; i < LEN(miners); i++) if (!strcasecmp(comm, miners[i])) snprintf(why, sizeof why, "%s", _("已知的挖礦程式"));
+		if (!why[0] && exe[0] && in_tmp(exe)) snprintf(why, sizeof why, "%s", _("從暫存資料夾執行"));
+		/* 偽裝成核心執行緒：名稱是 [xxx]，但其實有程式檔（真的核心執行緒沒有） */
+		if (!why[0] && exe[0]) {
+			char cmd[256] = "";
+			snprintf(p, sizeof p, "/proc/%s/cmdline", e->d_name);
+			chk_read(p, cmd, sizeof cmd);
+			if (cmd[0] == '[' && strchr(cmd, ']')) snprintf(why, sizeof why, "%s", _("名稱偽裝成系統核心的程式"));
+		}
+		if (!why[0]) continue;
+		nbad++;
+		if (strlen(found) < sizeof found - 200)
+			snprintf(found + strlen(found), sizeof found - strlen(found), "%s%s（PID %s，%s）%s%s", found[0] ? "\n" : "", comm, e->d_name, why,
+			         exe[0] ? "：" : "", exe);
+	}
+	if (d) closedir(d);
+	/* 暫存資料夾裡可以執行的檔案 */
+	char files[512] = "";
+	int nfiles = 0;
+	const char *tmps[] = { "/tmp", "/var/tmp", "/dev/shm" };
+	for (size_t t = 0; t < LEN(tmps); t++) {
+		DIR *td = opendir(chk_path(tmps[t]));
+		while (td && (e = readdir(td))) {
+			if (e->d_name[0] == '.' && (!e->d_name[1] || (e->d_name[1] == '.' && !e->d_name[2]))) continue;
+			char p[600];
+			snprintf(p, sizeof p, "%s/%s", tmps[t], e->d_name);
+			struct stat st;
+			if (lstat(chk_path(p), &st) || !S_ISREG(st.st_mode) || !(st.st_mode & 0111) || st.st_size < 1024) continue;
+			nfiles++;
+			if (strlen(files) < sizeof files - 120) snprintf(files + strlen(files), sizeof files - strlen(files), "%s%s", files[0] ? "\n" : "", p);
+		}
+		if (td) closedir(td);
+	}
+	PmCheck *c;
+	if (nbad) {
+		c = chk_add(r, "sec.process", PM_CHK_BAD, _("找到 %d 個可疑的程式"), nbad);
+		chk_detail(c, "%s", found);
+		chk_advice(c, "%s", _("如果你不認得它們，請把電腦拔掉網路，再請懂電腦的人或資安人員協助檢查；不要直接刪除，先保留證據。"));
+	} else chk_add(r, "sec.process", PM_CHK_OK, "%s", _("沒有發現可疑的程式"));
+	if (nfiles) {
+		c = chk_add(r, "sec.tmpexec", PM_CHK_WARN, _("暫存資料夾裡有 %d 個可以執行的檔案"), nfiles);
+		chk_detail(c, "%s", files);
+		chk_advice(c, "%s", _("有些安裝程式會這樣做；不認得的話值得留意（惡意程式常放在這裡）。"));
+	}
+}
+
+/* ---- 登入時自動執行 ---- */
+
+static int desktop_hidden(const char *path, char *name, size_t n, char *exec, size_t en)
+{
+	FILE *f = fopen(path, "r");
+	if (!f) return 1;
+	char line[1024];
+	int hidden = 0;
+	name[0] = exec[0] = 0;
+	while (fgets(line, sizeof line, f)) {
+		line[strcspn(line, "\r\n")] = 0;
+		if (!strncmp(line, "Name=", 5) && !name[0]) snprintf(name, n, "%s", line + 5);
+		else if (!strncmp(line, "Exec=", 5) && !exec[0]) snprintf(exec, en, "%s", line + 5);
+		else if (!strcmp(line, "Hidden=true") || !strcmp(line, "X-GNOME-Autostart-enabled=false")) hidden = 1;
+	}
+	fclose(f);
+	return hidden;
+}
+
+static void autostart(PmReport *r)
+{
+	char list[1024] = "", bad[512] = "";
+	int n = 0;
+	const char *home = getenv("HOME");
+	if (!home) return;
+	char dir[512];
+	snprintf(dir, sizeof dir, "%s/.config/autostart", home);
+	DIR *d = opendir(dir);
+	struct dirent *e;
+	while (d && (e = readdir(d))) {
+		if (!strstr(e->d_name, ".desktop")) continue;
+		char p[1024], name[256], exec[512];
+		snprintf(p, sizeof p, "%s/%s", dir, e->d_name);
+		if (desktop_hidden(p, name, sizeof name, exec, sizeof exec)) continue;
+		n++;
+		if (strlen(list) < sizeof list - 300) snprintf(list + strlen(list), sizeof list - strlen(list), "%s%s（%s）", list[0] ? "\n" : "", name[0] ? name : e->d_name, exec);
+		if (strstr(exec, "/tmp/") || strstr(exec, "/dev/shm/")) snprintf(bad + strlen(bad), sizeof bad - strlen(bad), "%s%s", bad[0] ? "\n" : "", exec);
+	}
+	if (d) closedir(d);
+	/* 使用者自己的 systemd 服務 */
+	snprintf(dir, sizeof dir, "%s/.config/systemd/user/default.target.wants", home);
+	d = opendir(dir);
+	while (d && (e = readdir(d))) {
+		if (!strstr(e->d_name, ".service")) continue;
+		n++;
+		if (strlen(list) < sizeof list - 200) snprintf(list + strlen(list), sizeof list - strlen(list), "%s%s（%s）", list[0] ? "\n" : "", e->d_name, _("背景服務"));
+	}
+	if (d) closedir(d);
+	/* crontab 的 @reboot */
+	char *o = chk_run("crontab -l");
+	for (char *l = o, *nx; l && *l; l = nx) {
+		nx = chk_line(l);
+		while (*l == ' ' || *l == '\t') l++;
+		if (strncmp(l, "@reboot", 7)) continue;
+		n++;
+		if (strlen(list) < sizeof list - 300) snprintf(list + strlen(list), sizeof list - strlen(list), "%s%s（crontab）", list[0] ? "\n" : "", l + 7 + strspn(l + 7, " \t"));
+		if (strstr(l, "/tmp/") || strstr(l, "/dev/shm/")) snprintf(bad + strlen(bad), sizeof bad - strlen(bad), "%s%s", bad[0] ? "\n" : "", l);
+	}
+	free(o);
+	PmCheck *c;
+	if (bad[0]) {
+		c = chk_add(r, "sec.autostart", PM_CHK_BAD, "%s", _("有程式會從暫存資料夾自動執行"));
+		chk_detail(c, "%s", bad);
+		chk_advice(c, "%s", _("這很可能是惡意程式留下的；請協助檢查並移除。"));
+	} else if (n) {
+		c = chk_add(r, "sec.autostart", PM_CHK_INFO, _("登入時會自動執行 %d 個你（或你裝的程式）加的項目"), n);
+		chk_detail(c, "%s", list);
+		chk_advice(c, "%s", _("看一下有沒有不認得的；系統與 Pomelo 內建的不列在這裡。"));
+	} else chk_add(r, "sec.autostart", PM_CHK_OK, "%s", _("沒有額外的自動執行項目"));
+}
+
+/* ---- 需要管理員權限的部分 ---- */
+
+static void admin_part(PmReport *r)
+{
+	const char *helper = getenv("POMELO_CHECK_ADMIN");   /* 測試：直接執行假的根目錄版本 */
+	char cmd[512];
+	if (helper) snprintf(cmd, sizeof cmd, "%s", helper);
+	else if (!access(ADMIN_HELPER, X_OK)) snprintf(cmd, sizeof cmd, "pkexec " ADMIN_HELPER);
+	else { chk_add(r, "sec.admin", PM_CHK_SKIP, "%s", _("找不到帳號檢查程式（pomelo-system 的一部分）")); return; }
+	char *o = chk_run(cmd);
+	if (!o || !strstr(o, "done\t")) {
+		chk_add(r, "sec.admin", PM_CHK_SKIP, "%s", _("沒有取得管理員權限，略過帳號與系統設定的檢查"));
+		free(o);
+		return;
+	}
+	char empty[512] = "", weak[512] = "", nopw[512] = "", suid[1024] = "", sshd_root[32] = "", sshd_pass[32] = "", sshd_empty[32] = "";
+	int nempty = 0, nweak = 0, nnopw = 0, nsuid = 0, fails = -1;
+	for (char *l = o, *nx; *l; l = nx) {
+		nx = chk_line(l);
+		char *v = strchr(l, '\t');
+		if (!v) continue;
+		*v++ = 0;
+#define ADD(buf, cnt) do { cnt++; if (strlen(buf) + strlen(v) + 3 < sizeof buf) snprintf(buf + strlen(buf), sizeof buf - strlen(buf), "%s%s", buf[0] ? "、" : "", v); } while (0)
+		if (!strcmp(l, "empty_pw")) ADD(empty, nempty);
+		else if (!strcmp(l, "weak_hash")) ADD(weak, nweak);
+		else if (!strcmp(l, "nopasswd")) ADD(nopw, nnopw);
+		else if (!strcmp(l, "suid")) { nsuid++; if (strlen(suid) + strlen(v) + 3 < sizeof suid) snprintf(suid + strlen(suid), sizeof suid - strlen(suid), "%s%s", suid[0] ? "\n" : "", v); }
+		else if (!strcmp(l, "sshd_permitrootlogin")) snprintf(sshd_root, sizeof sshd_root, "%s", v);
+		else if (!strcmp(l, "sshd_passwordauthentication")) snprintf(sshd_pass, sizeof sshd_pass, "%s", v);
+		else if (!strcmp(l, "sshd_permitemptypasswords")) snprintf(sshd_empty, sizeof sshd_empty, "%s", v);
+		else if (!strcmp(l, "ssh_fail")) fails = atoi(v);
+#undef ADD
+	}
+	free(o);
+	PmCheck *c;
+	if (nempty) {
+		c = chk_add(r, "sec.empty_pw", PM_CHK_BAD, _("有 %d 個帳號沒有設密碼"), nempty);
+		chk_detail(c, "%s", empty);
+		chk_advice(c, "%s", _("請替這些帳號設定密碼（終端機：sudo passwd 帳號名稱），或把不用的帳號鎖起來。"));
+	} else chk_add(r, "sec.empty_pw", PM_CHK_OK, "%s", _("每個帳號都有密碼"));
+	if (nweak) {
+		c = chk_add(r, "sec.weak_hash", PM_CHK_WARN, _("有 %d 個帳號的密碼用舊的方式加密"), nweak);
+		chk_detail(c, "%s", weak);
+		chk_advice(c, "%s", _("重新設定一次密碼，就會改用新的加密方式。"));
+	}
+	if (nnopw) {
+		c = chk_add(r, "sec.nopasswd", PM_CHK_WARN, "%s", _("有帳號用 sudo 不需要輸入密碼"));
+		chk_detail(c, _("設定對象：%s"), nopw);
+		chk_detail(c, "%s", _("只要拿到這個帳號（例如忘了鎖螢幕、或執行到惡意程式），就能直接取得系統最高權限。"));
+		chk_advice(c, "%s", _("除非有特別需要，請移除 /etc/sudoers 或 /etc/sudoers.d 裡的 NOPASSWD 設定（用 sudo visudo 修改）。"));
+	} else chk_add(r, "sec.nopasswd", PM_CHK_OK, "%s", _("使用 sudo 都要輸入密碼"));
+	if (nsuid) {
+		c = chk_add(r, "sec.suid", PM_CHK_WARN, _("有 %d 個不是系統套件的程式可以取得最高權限（setuid）"), nsuid);
+		chk_detail(c, "%s", suid);
+		chk_advice(c, "%s", _("不認得的話請協助檢查；這是入侵者常留的後門。"));
+	}
+	if (sshd_root[0] || sshd_pass[0]) {
+		/* 用 sshd -T 的實際值蓋掉從設定檔猜的 */
+		for (int i = 0; i < r->n; i++) if (!strcmp(r->c[i].id, "sec.ssh")) r->c[i].level = PM_CHK_SKIP, snprintf(r->c[i].title, sizeof r->c[i].title, "%s", _("SSH 設定（見下一項）"));
+		int lv = !strcmp(sshd_root, "yes") || !strcmp(sshd_empty, "yes") ? PM_CHK_BAD : !strcmp(sshd_pass, "yes") ? PM_CHK_WARN : PM_CHK_OK;
+		c = chk_add(r, "sec.sshd", lv, "%s", lv == PM_CHK_OK ? _("SSH 只接受金鑰登入") : _("SSH 的登入設定可以更安全"));
+		chk_detail(c, "PermitRootLogin %s／PasswordAuthentication %s／PermitEmptyPasswords %s", sshd_root, sshd_pass, sshd_empty);
+		if (lv != PM_CHK_OK) chk_advice(c, "%s", _("改用 SSH 金鑰登入後，把 PasswordAuthentication 設成 no、PermitRootLogin 設成 no。"));
+	}
+	if (fails > 20) {
+		c = chk_add(r, "sec.ssh_fail", PM_CHK_WARN, _("過去 24 小時有 %d 次 SSH 登入失敗"), fails);
+		chk_detail(c, "%s", _("有人在猜你的帳號密碼（網路上的自動攻擊很常見）。"));
+		chk_advice(c, "%s", _("改用金鑰登入、關掉密碼登入；或用防火牆只允許信任的位址連 SSH。"));
+	} else if (fails >= 0) chk_add(r, "sec.ssh_fail", PM_CHK_OK, _("過去 24 小時 SSH 登入失敗 %d 次"), fails);
+}
+
+void chk_security(PmReport *r, int flags)
+{
+	PmCheck *c;
+	int apt = pm_pkg_kind() == PM_PKG_APT;
+
+	/* 1. 安全性更新 */
+	{
+		int total = 0, sec = 0;
+		if (apt) {
+			char *o = chk_run("apt list --upgradable");
+			for (char *l = o, *nx; l && *l; l = nx) {
+				nx = chk_line(l);
+				if (!strstr(l, "upgradable")) continue;
+				total++;
+				char *sp = strchr(l, ' ');
+				if (sp) *sp = 0;
+				if (strstr(l, "-security")) sec++;
+			}
+			free(o);
+		} else if (pm_pkg_kind() == PM_PKG_DNF) {
+			char *o = chk_run("timeout 60 dnf -q --cacheonly updateinfo list --security");
+			/* 每一行是「公告 嚴重度/Sec. 套件」；同一個套件常出現在好幾個公告裡，要去重才是套件數 */
+			char *seen[512]; int ns = 0;
+			for (char *l = o, *nx; l && *l; l = nx) {
+				nx = chk_line(l);
+				if (!(strstr(l, "/Sec.") || strstr(l, "Important") || strstr(l, "Critical") || strstr(l, "Moderate"))) continue;
+				char *q = l; int f = 0;
+				while (*q && f < 2) { while (*q && *q != ' ' && *q != '\t') q++; while (*q == ' ' || *q == '\t') q++; f++; }
+				size_t len = strcspn(q, " \t");
+				if (!len) continue;
+				int dup = 0;
+				for (int i = 0; i < ns && !dup; i++) dup = strlen(seen[i]) == len && !strncmp(seen[i], q, len);
+				if (dup) continue;
+				if (ns < 512) seen[ns++] = strndup(q, len);
+				sec++;
+			}
+			for (int i = 0; i < ns; i++) free(seen[i]);
+			free(o);
+			o = pm_pkg_upgradable();
+			for (char *l = o, *nx; l && *l; l = nx) { nx = chk_line(l); if (*l) total++; }
+			free(o);
+			if (sec > total) total = sec;   /* 兩份清單來源不同（updateinfo／check-update），別算出負的一般更新數 */
+		}
+		if (sec) {
+			c = chk_add(r, "sec.updates", PM_CHK_WARN, _("有 %d 個安全性更新還沒裝"), sec);
+			chk_detail(c, _("另外還有 %d 個一般更新。"), total - sec);
+			chk_advice(c, "%s", _("安全性更新修補的是已經公開的漏洞，請盡快安裝。"));
+			chk_fix(c, "sec.updates", NULL, _("開啟軟體更新"));
+		} else if (total) {
+			c = chk_add(r, "sec.updates", PM_CHK_INFO, _("有 %d 個更新可以安裝（沒有安全性更新）"), total);
+			chk_fix(c, "sec.updates", NULL, _("開啟軟體更新"));
+		} else chk_add(r, "sec.updates", PM_CHK_OK, "%s", _("軟體都是最新的"));
+		if (apt) {
+			struct stat st;
+			if (!stat(chk_path("/var/lib/apt/lists"), &st)) {
+				long days = (time(NULL) - st.st_mtime) / 86400;
+				if (days > 14) {
+					c = chk_add(r, "sec.updates_old", PM_CHK_INFO, _("套件清單 %ld 天沒有更新，上面的數字可能不準"), days);
+					chk_fix(c, "sec.updates", NULL, _("開啟軟體更新"));
+				}
+			}
+		}
+	}
+
+	/* 2. 對網路開放的服務 */
+	Listen ls[64];
+	int nl = read_listen("/proc/net/tcp", 0, ls, 0, 64);
+	nl = read_listen("/proc/net/tcp6", 1, ls, nl, 64);
+	char ports[1024] = "", keep[128] = "";
+	for (int i = 0; i < nl; i++) {
+		const char *name, *why;
+		int lv = port_info(ls[i].port, &name, &why);
+		if (strlen(ports) < sizeof ports - 80)
+			snprintf(ports + strlen(ports), sizeof ports - strlen(ports), "%s%d%s%s", ports[0] ? "、" : "", ls[i].port, name ? " " : "", name ? name : "");
+		/* 遠端操作用的埠：開防火牆時要保留，不然會把自己鎖在外面 */
+		if ((ls[i].port == 22 || ls[i].port == 3389 || (ls[i].port >= 5900 && ls[i].port <= 5910)) && strlen(keep) < sizeof keep - 8)
+			snprintf(keep + strlen(keep), sizeof keep - strlen(keep), "%s%d", keep[0] ? " " : "", ls[i].port);
+		if (lv >= PM_CHK_WARN) {
+			char id[32];
+			snprintf(id, sizeof id, "sec.port%d", ls[i].port);
+			c = chk_add(r, id, lv, _("%s 對網路開放（埠 %d）"), name, ls[i].port);
+			if (why) chk_detail(c, "%s", why);
+			chk_advice(c, "%s", _("不需要讓別的電腦連的話，請把它設定成只聽本機（127.0.0.1），或用防火牆擋住；用 Docker 開的埠不受防火牆限制，要改 Docker 的設定（例如 -p 127.0.0.1:埠:埠）。"));
+		}
+	}
+	if (nl) {
+		c = chk_add(r, "sec.ports", PM_CHK_INFO, _("有 %d 個服務可以從網路連進來"), nl);
+		chk_detail(c, "%s", ports);
+	} else chk_add(r, "sec.ports", PM_CHK_OK, "%s", _("沒有服務對網路開放"));
+
+	/* 3. 防火牆 */
+	{
+		char *ufw_on = NULL, conf[4096];
+		int ufw = 0, firewalld = 0;
+		if (chk_read("/etc/ufw/ufw.conf", conf, sizeof conf)) {
+			ufw_on = strstr(conf, "\nENABLED=yes");
+			if (!ufw_on && !strncmp(conf, "ENABLED=yes", 11)) ufw_on = conf;
+		}
+		if (ufw_on) { char *o = chk_run("systemctl is-active ufw"); ufw = o && !strncmp(o, "active", 6); free(o); }
+		{ char *o = chk_run("systemctl is-active firewalld"); firewalld = o && !strncmp(o, "active", 6); free(o); }
+		if (ufw || firewalld) chk_add(r, "sec.firewall", PM_CHK_OK, _("防火牆已開啟（%s）"), ufw ? "ufw" : "firewalld");
+		else {
+			c = chk_add(r, "sec.firewall", nl ? PM_CHK_WARN : PM_CHK_INFO, "%s", _("防火牆沒有開"));
+			if (nl) chk_detail(c, _("有 %d 個服務對網路開放，同一個網路上的任何人都連得到。"), nl);
+			else chk_detail(c, "%s", _("目前沒有服務對網路開放，影響不大；之後裝了伺服器類的程式就需要了。"));
+			if (pm_have("firewall-cmd")) chk_fix(c, "sec.firewalld", NULL, _("開啟防火牆"));
+			else chk_fix(c, "sec.ufw", keep, _("開啟防火牆"));
+		}
+	}
+
+	/* 4. SSH 設定（從設定檔猜；有管理員權限時用 sshd -T 的實際值） */
+	if (!access(chk_path("/etc/ssh/sshd_config"), R_OK)) {
+		int exposed = 0;
+		for (int i = 0; i < nl; i++) exposed |= ls[i].port == 22;
+		char root[32], pass[32], empty[32];
+		ssh_config(root, pass, empty, sizeof root);
+		if (!strcasecmp(root, "yes") || !strcasecmp(empty, "yes")) {
+			c = chk_add(r, "sec.ssh", PM_CHK_BAD, "%s", !strcasecmp(root, "yes") ? _("SSH 允許 root 直接用密碼登入") : _("SSH 允許空密碼登入"));
+			chk_advice(c, "%s", _("在 /etc/ssh/sshd_config 把 PermitRootLogin 設成 no、PermitEmptyPasswords 設成 no，再重新啟動 SSH。"));
+		} else if (exposed && !strcasecmp(pass, "yes")) {
+			c = chk_add(r, "sec.ssh", PM_CHK_WARN, "%s", _("SSH 對網路開放，而且接受密碼登入"));
+			chk_detail(c, "%s", _("網路上隨時有程式在猜 SSH 的帳號密碼。"));
+			chk_advice(c, "%s", _("改用 SSH 金鑰登入，再把 PasswordAuthentication 設成 no；或用防火牆只允許信任的位址。"));
+		} else chk_add(r, "sec.ssh", PM_CHK_OK, "%s", exposed ? _("SSH 的登入設定沒有明顯問題") : _("SSH 沒有對網路開放"));
+	}
+
+	/* 5. 群組：docker 等同管理員 */
+	{
+		struct passwd *pw = getpwuid(getuid());
+		gid_t gs[64];
+		int ng = 64;
+		int docker = 0, admin = 0;
+		if (pw && getgrouplist(pw->pw_name, pw->pw_gid, gs, &ng) >= 0)
+			for (int i = 0; i < ng; i++) {
+				struct group *g = getgrgid(gs[i]);
+				if (!g) continue;
+				if (!strcmp(g->gr_name, "docker")) docker = 1;
+				if (!strcmp(g->gr_name, "sudo") || !strcmp(g->gr_name, "wheel") || !strcmp(g->gr_name, "admin")) admin = 1;
+			}
+		if (docker) {
+			c = chk_add(r, "sec.docker", PM_CHK_WARN, "%s", _("你的帳號在 docker 群組裡（等同管理員權限）"));
+			chk_detail(c, "%s", _("docker 群組的成員不用輸入密碼，就能取得整台電腦的最高權限；執行到惡意程式時風險比較大。"));
+			chk_advice(c, "%s", _("如果平常用得到 Docker，這是正常的；不用的話可以把自己移出 docker 群組。"));
+		}
+		if (admin) chk_add(r, "sec.admin_user", PM_CHK_OK, "%s", _("你的帳號是管理員（可以用 sudo）"));
+	}
+
+	/* 6. 自動登入、自動鎖定 */
+	{
+		char conf[4096], user[128] = "";
+		if (chk_read("/etc/pomelo/dm.conf", conf, sizeof conf)) {
+			char *p = strstr(conf, "autologin-user=");
+			if (p && (p == conf || p[-1] == '\n')) sscanf(p + 15, "%127[^\n]", user);
+		}
+		const char *gdm[] = { "/etc/gdm3/custom.conf", "/etc/gdm/custom.conf" };
+		for (size_t i = 0; i < LEN(gdm) && !user[0]; i++)
+			if (chk_read(gdm[i], conf, sizeof conf) && strcasestr(conf, "\nAutomaticLoginEnable=true")) {
+				char *p = strstr(conf, "\nAutomaticLogin=");
+				if (p) sscanf(p + 16, "%127[^\n]", user);
+				else snprintf(user, sizeof user, "?");
+			}
+		if (user[0]) {
+			c = chk_add(r, "sec.autologin", PM_CHK_WARN, "%s", _("開機不用密碼就直接進桌面"));
+			chk_detail(c, _("自動登入的帳號：%s。電腦被別人拿到時，打開就能看到你的檔案。"), user);
+			chk_advice(c, "%s", _("在系統設定的「登入畫面」關掉自動登入。"));
+			chk_fix(c, "sec.open_login", NULL, _("開啟登入畫面設定"));
+		} else chk_add(r, "sec.autologin", PM_CHK_OK, "%s", _("開機要輸入密碼"));
+		int lock = pm_conf_int("power.lock_after", 10);
+		if (lock <= 0) {
+			c = chk_add(r, "sec.lock", PM_CHK_WARN, "%s", _("離開電腦時不會自動鎖定螢幕"));
+			chk_advice(c, "%s", _("在電源設定開啟自動鎖定（建議 5～10 分鐘）；離開座位時也可以按 Super+L 鎖定。"));
+			chk_fix(c, "sec.open_power", NULL, _("開啟電源設定"));
+		} else if (lock > 15) {
+			c = chk_add(r, "sec.lock", PM_CHK_INFO, _("閒置 %d 分鐘才會鎖定螢幕"), lock);
+			chk_advice(c, "%s", _("在公共場所建議改短一點（5～10 分鐘）。"));
+			chk_fix(c, "sec.open_power", NULL, _("開啟電源設定"));
+		} else chk_add(r, "sec.lock", PM_CHK_OK, _("閒置 %d 分鐘會自動鎖定螢幕"), lock);
+	}
+
+	/* 7. 磁碟加密、Secure Boot、AppArmor／SELinux */
+	{
+		int known, enc = root_encrypted(&known);
+		DIR *bd = opendir(chk_path("/sys/class/power_supply"));
+		struct dirent *e;
+		int laptop = 0;
+		while (bd && (e = readdir(bd))) if (!strncmp(e->d_name, "BAT", 3)) laptop = 1;
+		if (bd) closedir(bd);
+		if (known && enc) chk_add(r, "sec.encrypt", PM_CHK_OK, "%s", _("系統磁碟有加密"));
+		else if (known) {
+			c = chk_add(r, "sec.encrypt", laptop ? PM_CHK_WARN : PM_CHK_INFO, "%s", _("系統磁碟沒有加密"));
+			chk_detail(c, "%s", laptop ? _("筆電遺失或被偷時，別人把硬碟拆下來就能讀到你所有的檔案。")
+			                           : _("電腦被拿走時，硬碟裡的檔案可以直接被讀取。"));
+			chk_advice(c, "%s", _("加密要在安裝系統時選擇（重新安裝）；在那之前，重要的檔案可以放在加密的隨身碟或資料夾。"));
+		}
+		if (!access(chk_path("/sys/firmware/efi"), F_OK)) {
+			char p[300] = "";
+			DIR *ev = opendir(chk_path("/sys/firmware/efi/efivars"));
+			while (ev && (e = readdir(ev))) if (!strncmp(e->d_name, "SecureBoot-", 11)) snprintf(p, sizeof p, "/sys/firmware/efi/efivars/%s", e->d_name);
+			if (ev) closedir(ev);
+			unsigned char b[8] = { 0 };
+			FILE *f = p[0] ? fopen(chk_path(p), "rb") : NULL;
+			int on = f && fread(b, 1, 5, f) == 5 && b[4] == 1;
+			if (f) fclose(f);
+			if (on) chk_add(r, "sec.secureboot", PM_CHK_OK, "%s", _("安全開機（Secure Boot）已開啟"));
+			else {
+				c = chk_add(r, "sec.secureboot", PM_CHK_INFO, "%s", _("安全開機（Secure Boot）沒有開"));
+				chk_detail(c, "%s", _("安全開機可以防止開機程式被竄改；裝了 NVIDIA 等需要自己編譯的驅動時常需要關掉，不一定要開。"));
+			}
+		}
+		char v[16];
+		if (chk_read("/sys/module/apparmor/parameters/enabled", v, sizeof v) && v[0] == 'Y') chk_add(r, "sec.mac", PM_CHK_OK, "%s", _("AppArmor 保護已開啟"));
+		else if (chk_read("/sys/fs/selinux/enforce", v, sizeof v)) {
+			if (v[0] == '1') chk_add(r, "sec.mac", PM_CHK_OK, "%s", _("SELinux 保護已開啟"));
+			else {
+				c = chk_add(r, "sec.mac", PM_CHK_WARN, "%s", _("SELinux 是寬容模式（只記錄、不阻擋）"));
+				chk_advice(c, "%s", _("除非正在除錯，請改回強制模式（/etc/selinux/config 的 SELINUX=enforcing）。"));
+			}
+		} else {
+			c = chk_add(r, "sec.mac", PM_CHK_INFO, "%s", _("沒有 AppArmor 或 SELinux 保護"));
+			chk_detail(c, "%s", _("它們可以限制程式能做的事，被入侵時損害比較小。"));
+		}
+	}
+
+	/* 8. 登入時自動執行、可疑程式 */
+	autostart(r);
+	suspicious(r);
+
+	/* 9. SSH 私鑰、家目錄權限 */
+	{
+		const char *home = getenv("HOME");
+		char dir[512], list[512] = "";
+		int nk = 0;
+		snprintf(dir, sizeof dir, "%s/.ssh", home ? home : "/nonexistent");
+		DIR *d = opendir(dir);
+		struct dirent *e;
+		while (d && (e = readdir(d))) {
+			if (e->d_name[0] == '.' || strstr(e->d_name, ".pub") || !strncmp(e->d_name, "known_hosts", 11) || !strcmp(e->d_name, "config") || !strcmp(e->d_name, "authorized_keys")) continue;
+			char p[1024];
+			snprintf(p, sizeof p, "%s/%s", dir, e->d_name);
+			if (key_unencrypted(p)) { nk++; if (strlen(list) < sizeof list - 80) snprintf(list + strlen(list), sizeof list - strlen(list), "%s~/.ssh/%s", list[0] ? "、" : "", e->d_name); }
+		}
+		if (d) closedir(d);
+		if (nk) {
+			c = chk_add(r, "sec.sshkey", PM_CHK_INFO, _("%d 把 SSH 私鑰沒有設定密碼"), nk);
+			chk_detail(c, "%s", list);
+			chk_advice(c, "%s", _("檔案被偷走時，別人可以直接拿它登入你的伺服器；可以用 ssh-keygen -p -f 檔案 加上密碼。"));
+		}
+		struct stat st;
+		if (home && !stat(home, &st) && (st.st_mode & 0004)) {
+			/* 有其他人類帳號（UID 1000 以上）時才比較要緊 */
+			int others = 0;
+			setpwent();
+			struct passwd *p;
+			while ((p = getpwent())) if (p->pw_uid >= 1000 && p->pw_uid < 60000 && p->pw_uid != getuid()) others++;
+			endpwent();
+			c = chk_add(r, "sec.home", others ? PM_CHK_WARN : PM_CHK_INFO, "%s", _("這台電腦的其他帳號可以看你家目錄裡的檔案"));
+			chk_detail(c, _("家目錄權限 %o。"), st.st_mode & 0777);
+			chk_fix(c, "sec.home", NULL, _("只讓自己看"));
+		}
+	}
+
+	/* 10. 病毒掃描（ClamAV，選用；在系統設定的病毒掃描頁做） */
+	if (pm_have("clamscan")) {
+		long last = pm_conf_int("virus.last_scan", 0), found = pm_conf_int("virus.last_found", 0);
+		if (!last) {
+			c = chk_add(r, "sec.virus", PM_CHK_INFO, "%s", _("還沒有用 ClamAV 掃描過病毒"));
+			chk_fix(c, "sec.virus", NULL, _("掃描病毒"));
+		} else {
+			time_t t = (time_t)last;
+			struct tm tm;
+			char d[32];
+			localtime_r(&t, &tm);
+			strftime(d, sizeof d, "%Y-%m-%d", &tm);
+			if (found) {
+				c = chk_add(r, "sec.virus", PM_CHK_WARN, _("上次病毒掃描（%s）找到 %ld 個可疑的檔案"), d, found);
+				chk_advice(c, "%s", _("在病毒掃描頁把它們隔離或刪除後，再掃描一次。"));
+			} else c = chk_add(r, "sec.virus", PM_CHK_OK, _("上次病毒掃描（%s）沒有發現病毒"), d);
+			chk_fix(c, "sec.virus", NULL, _("掃描病毒"));
+		}
+	}
+
+	/* 11. 已知漏洞（CVE）：跟使用者下載過的發行版漏洞資料比對（見 sbom.c） */
+	{
+		time_t when = 0;
+		char src[160] = "";
+		if (!pm_sbom_data_info(&when, src, sizeof src)) {
+			c = chk_add(r, "sec.vuln", PM_CHK_INFO, "%s", _("還沒有漏洞資料，沒辦法比對已知漏洞（CVE）"));
+			chk_detail(c, "%s", _("在「套件清單（SBOM）」下載發行版公開的漏洞資料之後，就能知道裝的套件有沒有已知漏洞。資料存在這台電腦，不會上傳套件清單。"));
+			chk_fix(c, "sec.sbom", NULL, _("打開套件清單"));
+		} else {
+			PmSbom *s = pm_sbom_load();
+			if (s && pm_sbom_match(s) == 0) {
+				char d[32];
+				struct tm tm;
+				localtime_r(&when, &tm);
+				strftime(d, sizeof d, "%Y-%m-%d", &tm);
+				int days = (int)((time(NULL) - when) / 86400);
+				if (s->nfix_pkgs) {
+					c = chk_add(r, "sec.vuln", PM_CHK_WARN, _("%d 個套件有已知漏洞，而且更新已經出了"), s->nfix_pkgs);
+					chk_detail(c, _("漏洞資料 %s（%s）。有修正的漏洞是公開的，攻擊程式通常很快就會出現。"), d, src);
+					chk_advice(c, "%s", _("請安裝軟體更新。"));
+					chk_fix(c, "sec.updates", NULL, _("安裝更新"));
+				} else if (s->nopen_pkgs) {
+					c = chk_add(r, "sec.vuln", PM_CHK_INFO, _("%d 個套件有已知漏洞，發行版還沒釋出修正"), s->nopen_pkgs);
+					chk_detail(c, _("漏洞資料 %s（%s）。這些通常是低風險或還在評估的；修正出來會出現在軟體更新。"), d, src);
+					chk_fix(c, "sec.sbom", NULL, _("查看清單"));
+				} else c = chk_add(r, "sec.vuln", PM_CHK_OK, _("沒有已知漏洞（漏洞資料 %s）"), d);
+				if (days >= 30) {
+					chk_detail(c, _("漏洞資料已經 %d 天沒更新了。"), days);
+					chk_advice(c, "%s", _("到「套件清單（SBOM）」按「更新漏洞資料」。"));
+				}
+			}
+			pm_sbom_free(s);
+		}
+	}
+
+	if (flags & PM_CHK_ADMIN) admin_part(r);
+	else {
+		c = chk_add(r, "sec.admin", PM_CHK_SKIP, "%s", _("帳號密碼與 sudo 的檢查需要管理員權限（還沒做）"));
+	}
+}
+
+int chk_sec_fix(const PmCheck *c, char **argv, int max, int *admin, char *msg, size_t n)
+{
+	static char script[512], ports[16][8], cmdline[512];
+	int k = 0;
+	if (!strcmp(c->fix, "sec.updates")) { argv[k++] = "@open"; argv[k++] = "pomelo-software --updates"; }
+	else if (!strcmp(c->fix, "sec.open_login")) { argv[k++] = "@open"; argv[k++] = "pomelo-system --page login"; }
+	else if (!strcmp(c->fix, "sec.open_power")) { argv[k++] = "@open"; argv[k++] = "pomelo-system --page power"; }
+	else if (!strcmp(c->fix, "sec.virus")) { argv[k++] = "@open"; argv[k++] = "pomelo-system --page virus"; }
+	else if (!strcmp(c->fix, "sec.sbom")) { argv[k++] = "@open"; argv[k++] = "pomelo-system --page sbom"; }
+	else if (!strcmp(c->fix, "sec.home")) {
+		const char *home = getenv("HOME");
+		if (!home) return 0;
+		snprintf(msg, n, "%s", _("把家目錄的權限改成只有你自己（和你的群組）能看。"));
+		argv[k++] = "chmod"; argv[k++] = "o-rwx"; argv[k++] = (char *)home;
+	} else if (!strcmp(c->fix, "sec.firewalld")) {
+		*admin = 1;
+		snprintf(msg, n, "%s", _("開啟 firewalld 防火牆，並設定成開機自動開啟。"));
+		argv[k++] = "systemctl"; argv[k++] = "enable"; argv[k++] = "--now"; argv[k++] = "firewalld";
+	} else if (!strcmp(c->fix, "sec.ufw")) {
+		*admin = 1;
+		int np = 0;
+		char tmp[256];
+		snprintf(tmp, sizeof tmp, "%s", c->fix_arg);
+		for (char *s = strtok(tmp, " "); s && np < 16; s = strtok(NULL, " ")) snprintf(ports[np++], sizeof ports[0], "%s", s);
+		char *install = pm_have("ufw") ? NULL : pm_pkg_cmdline("install", "ufw");
+		snprintf(script, sizeof script, "%s%sfor p in \"$@\"; do ufw allow \"$p/tcp\" >/dev/null; done; ufw --force enable",
+		         install ? install : "", install ? " && " : "");
+		free(install);
+		snprintf(msg, n, "%s", _("開啟防火牆（ufw）：別的電腦主動連進來的連線都會被擋住，你自己上網不受影響。"));
+		if (np) {
+			char keep[160] = "";
+			for (int i = 0; i < np; i++) snprintf(keep + strlen(keep), sizeof keep - strlen(keep), "%s%s", i ? "、" : "", ports[i]);
+			snprintf(msg + strlen(msg), n - strlen(msg), _("遠端連線用的埠（%s）會保留，不會把你自己擋在外面。"), keep);
+		}
+		if (!pm_have("ufw")) snprintf(msg + strlen(msg), n - strlen(msg), "%s", _("會先安裝 ufw。"));
+		argv[k++] = "sh"; argv[k++] = "-c"; argv[k++] = script; argv[k++] = "sh";
+		for (int i = 0; i < np && k < max - 1; i++) argv[k++] = ports[i];
+		(void)cmdline;
+	}
+	argv[k] = NULL;
+	return k;
+}
