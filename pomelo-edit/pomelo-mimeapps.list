@@ -1,0 +1,23 @@
+[Default Applications]
+text/plain=pomelo-edit.desktop
+application/x-zerosize=pomelo-edit.desktop
+text/markdown=pomelo-edit.desktop
+text/x-markdown=pomelo-edit.desktop
+text/csv=pomelo-edit.desktop
+text/x-log=pomelo-edit.desktop
+text/x-c=pomelo-edit.desktop
+text/x-csrc=pomelo-edit.desktop
+text/x-chdr=pomelo-edit.desktop
+text/x-python=pomelo-edit.desktop
+text/x-shellscript=pomelo-edit.desktop
+application/x-shellscript=pomelo-edit.desktop
+text/x-makefile=pomelo-edit.desktop
+application/json=pomelo-edit.desktop
+application/xml=pomelo-edit.desktop
+text/xml=pomelo-edit.desktop
+text/css=pomelo-edit.desktop
+text/x-ini=pomelo-edit.desktop
+application/x-desktop=pomelo-edit.desktop
+text/x-readme=pomelo-edit.desktop
+inode/directory=pomelo-files.desktop
+x-scheme-handler/terminal=pomelo-terminal.desktop

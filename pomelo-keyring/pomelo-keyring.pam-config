@@ -1,0 +1,9 @@
+Name: Pomelo keyring (unlock at login)
+Default: yes
+Priority: 0
+Auth-Type: Additional
+Auth:
+	optional			pam_pomelo_keyring.so
+Session-Type: Additional
+Session:
+	optional			pam_pomelo_keyring.so auto_start

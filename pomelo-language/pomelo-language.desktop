@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Language & Input
+Name[zh_TW]=語言與輸入法
+Comment=介面語言、地區格式、鍵盤配置與輸入法
+Keywords=language;locale;region;keyboard;input;fcitx;ibus;語言;語系;地區;鍵盤;輸入法;注音;
+Exec=pomelo-language
+Icon=pomelo-language
+Type=Application
+Categories=Settings;
+StartupWMClass=pomelo-language

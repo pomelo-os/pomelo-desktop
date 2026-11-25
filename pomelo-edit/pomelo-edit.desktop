@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=Text Editor
+Name[zh_TW]=文字編輯器
+GenericName=Text Editor
+GenericName[zh_TW]=文字編輯器
+Comment=純文字編輯器：多個分頁、檔案清單、尋找與取代
+Comment[en]=Plain-text editor with tabs, a file list, find and replace
+Keywords=text;editor;notes;txt;文字;編輯;筆記;記事本;
+Exec=pomelo-edit %F
+Icon=pomelo-edit
+Type=Application
+Categories=Utility;TextEditor;
+MimeType=text/plain;application/x-zerosize;text/markdown;text/x-markdown;text/csv;text/x-log;text/x-c;text/x-csrc;text/x-chdr;text/x-python;text/x-shellscript;application/x-shellscript;text/x-makefile;application/json;application/xml;text/xml;text/html;text/css;text/javascript;application/javascript;text/x-ini;application/x-desktop;text/x-readme;
+StartupWMClass=pomelo-edit

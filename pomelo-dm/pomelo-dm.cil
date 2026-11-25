@@ -1,0 +1,13 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; pomelo-dm 的 SELinux 規則（Fedora／Rocky 的 RPM 在 %post 用 semodule -i 載入；安裝光碟也用這一份）
+; pomelo-dm 是登入管理員：跟 gdm、lightdm 一樣用 xdm_t，PAM（pam_selinux）才能把使用者的工作階段切到 unconfined_t；
+; 用一般服務的 unconfined_service_t 的話，切換會被擋，登入後馬上被踢回登入畫面
+(filecon "/usr/bin/pomelo-dm" file (system_u object_r xdm_exec_t ((s0) (s0))))
+(filecon "/usr/sbin/pomelo-dm" file (system_u object_r xdm_exec_t ((s0) (s0))))
+(filecon "/var/lib/pomelo-dm(/.*)?" any (system_u object_r xdm_var_lib_t ((s0) (s0))))
+(filecon "/run/pomelo-dm(/.*)?" any (system_u object_r xdm_var_run_t ((s0) (s0))))
+; pomelo-compositor 由 pomelo-dm 啟動、也在 xdm_t：要連 seatd（政策沒有 seatd 自己的類型：socket 是 var_run_t、seatd 跑在 unconfined_service_t）
+(allow xdm_t var_run_t (sock_file (write)))
+(allow xdm_t unconfined_service_t (unix_stream_socket (connectto)))
+; 其他還沒整理完的權限：只有 xdm_t（登入管理員自己）先用 permissive，只記錄不阻擋；使用者工作階段與其他服務照樣 enforcing
+(typepermissive xdm_t)

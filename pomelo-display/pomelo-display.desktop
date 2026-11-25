@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Displays
+Name[zh_TW]=顯示器
+Comment=解析度、更新頻率、旋轉與多螢幕排列
+Keywords=display;monitor;screen;resolution;refresh;rotate;顯示器;螢幕;解析度;更新頻率;多螢幕;
+Exec=pomelo-display
+Icon=pomelo-display
+Type=Application
+Categories=Settings;HardwareSettings;
+StartupWMClass=pomelo-display

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Pomelo Files
+Name[zh_TW]=檔案
+GenericName=File Manager
+GenericName[zh_TW]=檔案管理員
+Comment=瀏覽與管理檔案
+Keywords=folder;files;manager;explorer;檔案;資料夾;
+Exec=pomelo-files %U
+Icon=pomelo-files
+Type=Application
+Categories=System;FileTools;FileManager;
+MimeType=inode/directory;
+StartupWMClass=pomelo-files

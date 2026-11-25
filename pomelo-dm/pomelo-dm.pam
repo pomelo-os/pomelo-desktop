@@ -1,0 +1,17 @@
+#%PAM-1.0
+# pomelo-dm：Pomelo 登入畫面輸入密碼登入（參考 GDM 的 gdm-password）
+auth    requisite       pam_nologin.so
+auth    required        pam_succeed_if.so user != root quiet_success
+@include common-auth
+@include common-account
+session [success=ok ignore=ignore module_unknown=ignore default=bad]        pam_selinux.so close
+session required        pam_loginuid.so
+session [success=ok ignore=ignore module_unknown=ignore default=bad]        pam_selinux.so open
+session optional        pam_keyinit.so force revoke
+session required        pam_limits.so
+session required        pam_env.so readenv=1
+session required        pam_env.so readenv=1 user_readenv=1 envfile=/etc/default/locale
+# common-session 裡有 pam_systemd（向 systemd-logind 登記，音效、外接裝置等權限才會正確）
+# 以及 pomelo-keyring（用登入密碼解鎖鑰匙圈）
+@include common-session
+@include common-password

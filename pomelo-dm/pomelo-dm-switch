@@ -1,0 +1,84 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# pomelo-dm-switch — 切換登入管理員（需要 sudo）
+#
+#   sudo pomelo-dm-switch try      先試用：在 Ctrl+Alt+F7 開一個 Pomelo 登入畫面，不改任何設定
+#                                  （試完按 Ctrl+Alt+F1 回原本的登入畫面；重新開機就恢復原狀）
+#   sudo pomelo-dm-switch on       之後開機都用 Pomelo 登入畫面（記住原本用的是哪一個）
+#   sudo pomelo-dm-switch off      換回原本的登入管理員（GDM、LightDM…）
+#   pomelo-dm-switch status        顯示目前用的是哪一個
+#
+# 萬一 Pomelo 登入畫面出問題、登不進去：按 Ctrl+Alt+F3 用文字登入，執行 sudo pomelo-dm-switch off，再重新開機。
+set -e
+R=${POMELO_DM_SWITCH_ROOT:-}   # 只給測試用：把整個系統換成這個目錄底下的假檔案
+DM=/usr/sbin/pomelo-dm
+PREV=$R/var/lib/pomelo-dm/previous-dm
+cur=$(cat $R/etc/X11/default-display-manager 2>/dev/null || true)
+# Fedora、Rocky 等沒有 /etc/X11/default-display-manager：看 display-manager.service 指到哪個服務，讀它的 ExecStart
+if [ -z "$cur" ] && [ -L $R/etc/systemd/system/display-manager.service ]; then
+	u=$(readlink $R/etc/systemd/system/display-manager.service)
+	cur=$(sed -n 's/^ExecStart=\([^ ]*\).*/\1/p' "$R$u" 2>/dev/null | head -n1)
+fi
+
+unit_dir() { for d in /usr/lib/systemd/system /lib/systemd/system; do [ -e "$R$d/$1" ] && { echo "$d/$1"; return 0; }; done; return 1; }
+# 登入管理員的執行檔 → systemd 單元
+unit_of() {
+	b=$(basename "$1")
+	case "$b" in
+		gdm3) for u in gdm3.service gdm.service; do unit_dir $u && return 0; done ;;
+		pomelo-dm) unit_dir pomelo-dm.service && return 0 ;;
+		*) unit_dir "$b.service" && return 0 ;;
+	esac
+	return 1
+}
+need_root() { [ -n "$R" ] || [ "$(id -u)" = 0 ] || { echo "請用 sudo 執行：sudo pomelo-dm-switch $1" >&2; exit 1; }; }
+set_dm() {
+	unit=$(unit_of "$1") || { echo "找不到 $1 的 systemd 服務檔" >&2; exit 1; }
+	echo "$1" > $R/etc/X11/default-display-manager
+	ln -sf "$unit" $R/etc/systemd/system/display-manager.service
+	[ -n "$R" ] || systemctl daemon-reload 2>/dev/null || true
+}
+
+case "$1" in
+try)
+	need_root try
+	[ -x "$R$DM" ] || { echo "沒有安裝 pomelo-dm" >&2; exit 1; }
+	systemctl stop pomelo-dm-try.service 2>/dev/null || true
+	systemd-run --unit=pomelo-dm-try --description="Pomelo 登入管理員（試用）" -p KillMode=mixed "$DM"
+	sleep 1
+	chvt 7 2>/dev/null || true
+	echo "已在 Ctrl+Alt+F7 開啟 Pomelo 登入畫面。按 Ctrl+Alt+F1 回原本的登入畫面。"
+	echo "結束試用：sudo systemctl stop pomelo-dm-try（會登出在那裡登入的工作階段）"
+	;;
+on)
+	need_root on
+	if [ "$cur" = "$DM" ]; then echo "已經在使用 Pomelo 登入畫面"; exit 0; fi
+	mkdir -p $R/var/lib/pomelo-dm
+	[ -n "$cur" ] && echo "$cur" > "$PREV"
+	set_dm "$DM"
+	echo "完成：下次開機會使用 Pomelo 登入畫面（原本是 ${cur:-未設定}）。"
+	echo "想換回來：sudo pomelo-dm-switch off"
+	echo "萬一登不進去：按 Ctrl+Alt+F3 用文字登入，執行 sudo pomelo-dm-switch off 後重新開機。"
+	;;
+off)
+	need_root off
+	prev=$(cat "$PREV" 2>/dev/null || true)
+	if [ -z "$prev" ] || [ "$prev" = "$DM" ] || [ ! -x "$R$prev" ] || ! unit_of "$prev" >/dev/null; then
+		prev=
+		for c in /usr/sbin/gdm3 /usr/sbin/gdm /usr/sbin/lightdm /usr/bin/sddm /usr/sbin/sddm; do
+			[ -x "$R$c" ] && unit_of "$c" >/dev/null && { prev=$c; break; }
+		done
+	fi
+	[ -n "$prev" ] || { echo "找不到其他登入管理員（GDM、LightDM、SDDM），維持 Pomelo" >&2; exit 1; }
+	set_dm "$prev"
+	echo "完成：下次開機會使用 $prev。"
+	;;
+status|"")
+	echo "目前的登入管理員：${cur:-未設定}"
+	[ -L $R/etc/systemd/system/display-manager.service ] && echo "systemd：$(readlink $R/etc/systemd/system/display-manager.service)"
+	;;
+*)
+	sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+	exit 2
+	;;
+esac

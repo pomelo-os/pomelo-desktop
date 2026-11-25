@@ -1,0 +1,29 @@
+[Unit]
+Description=Pomelo 登入管理員
+Documentation=file:///usr/share/doc/pomelo-dm/README
+# 開機畫面（plymouth）由 pomelo-dm 自己交接（deactivate → 啟動 compositor → quit --retain-splash，跟 GDM 一樣），
+# 所以用 Conflicts 擋住 plymouth-quit.service，不讓它先把開機畫面關掉（中間會閃一下文字主控台）；
+# pomelo-dm 失敗時才由 OnFailure 關掉開機畫面。
+# 不排在 systemd-user-sessions 後面：它又排在 network.target 後面，登入畫面不需要等網路；
+# 「系統還在開機、還不能登入」（/run/nologin）改由 pomelo-dm 在真正登入前自己等（wait_nologin）。
+Conflicts=getty@tty7.service plymouth-quit.service
+# seatd：Fedora／Rocky 的 libseat 沒有內建的 seatd，pomelo-compositor 要靠 seatd 服務才拿得到螢幕（Ubuntu 沒有這個服務，這兩行會被略過）
+Wants=seatd.service
+After=getty@tty7.service plymouth-quit.service systemd-logind.service seatd.service
+OnFailure=plymouth-quit.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+# 只有在 /etc/X11/default-display-manager 指向自己時才啟動（跟 GDM、LightDM 同樣的慣例），
+# 用 pomelo-dm-switch on／off 切換
+ExecCondition=/bin/sh -c '[ "$(cat /etc/X11/default-display-manager 2>/dev/null)" = "/usr/sbin/pomelo-dm" ]'
+ExecStart=/usr/sbin/pomelo-dm
+Restart=always
+RestartSec=2
+# 只送 SIGTERM 給 pomelo-dm，由它依序關掉工作階段、登入畫面、pomelo-compositor
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+Alias=display-manager.service

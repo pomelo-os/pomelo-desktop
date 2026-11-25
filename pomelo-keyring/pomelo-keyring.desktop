@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Passwords & Keyring
+Name[zh_TW]=密碼與鑰匙圈
+Comment=幫瀏覽器、編輯器等程式保管密碼
+Comment[en]=Keeps passwords for browsers, editors and other apps
+Keywords=keyring;password;secret;鑰匙圈;密碼;
+Exec=pomelo-keyring --settings
+Icon=pomelo-keyring
+Type=Application
+Categories=Settings;Security;
+StartupWMClass=pomelo-keyring
+NoDisplay=false

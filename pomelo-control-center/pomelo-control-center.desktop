@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Control Center
+Name[zh_TW]=控制中心
+Comment=快速切換常用設定
+Keywords=control;quick;settings;控制中心;快速設定;
+Exec=pomelo-control-center
+Icon=pomelo-control-center
+Type=Application
+Categories=Settings;
+StartupWMClass=pomelo-control-center

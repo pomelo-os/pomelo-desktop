@@ -1,0 +1,25 @@
+[Desktop Entry]
+Name=Containers
+Name[zh_TW]=容器
+Name[zh_CN]=容器
+Name[ja]=コンテナ
+Name[ko]=컨테이너
+Name[fr]=Conteneurs
+Name[de]=Container
+Name[es]=Contenedores
+Name[it]=Container
+Name[pt_BR]=Contêineres
+Name[ru]=Контейнеры
+Name[vi]=Container
+Name[th]=คอนเทนเนอร์
+Name[id]=Kontainer
+GenericName=Docker Manager
+GenericName[zh_TW]=Docker 管理
+Comment=管理 Docker 的容器、映像與備份
+Comment[en]=Manage Docker containers, images and backups
+Keywords=docker;container;containers;image;compose;podman;容器;映像;
+Exec=pomelo-docker
+Icon=pomelo-docker
+Type=Application
+Categories=System;X-Pomelo-Productivity;
+StartupWMClass=pomelo-docker

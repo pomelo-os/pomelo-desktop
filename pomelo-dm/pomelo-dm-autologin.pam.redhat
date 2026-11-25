@@ -1,0 +1,17 @@
+#%PAM-1.0
+# pomelo-dm-autologin：/etc/pomelo/dm.conf 設了 autologin-user 時，開機自動登入（不問密碼；Fedora、Rocky、RHEL 系）
+auth       requisite   pam_nologin.so
+auth       required    pam_succeed_if.so user != root quiet_success
+auth       required    pam_permit.so
+auth       include     postlogin
+account    required    pam_nologin.so
+account    include     password-auth
+password   include     password-auth
+session    required    pam_selinux.so close
+session    required    pam_loginuid.so
+-session   optional    pam_console.so
+session    required    pam_selinux.so open
+session    optional    pam_keyinit.so force revoke
+session    required    pam_namespace.so
+session    include     password-auth
+session    include     postlogin

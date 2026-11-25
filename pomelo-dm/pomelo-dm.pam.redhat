@@ -1,0 +1,21 @@
+#%PAM-1.0
+# pomelo-dm：Pomelo 登入畫面輸入密碼登入（Fedora、Rocky、RHEL 系；參考 LightDM 與 GDM 在 Fedora 上的設定）
+auth       requisite   pam_nologin.so
+auth       required    pam_succeed_if.so user != root quiet_success
+auth       substack    password-auth
+# 用登入密碼解鎖 Pomelo 鑰匙圈（沒裝 pomelo-keyring 時略過；這些系統沒有 pam-auth-update，直接寫在這裡）
+-auth      optional    pam_pomelo_keyring.so
+auth       include     postlogin
+account    required    pam_nologin.so
+account    include     password-auth
+password   include     password-auth
+session    required    pam_selinux.so close
+session    required    pam_loginuid.so
+-session   optional    pam_console.so
+session    required    pam_selinux.so open
+session    optional    pam_keyinit.so force revoke
+session    required    pam_namespace.so
+# password-auth 裡有 pam_systemd（向 systemd-logind 登記，音效、外接裝置等權限才會正確）
+session    include     password-auth
+-session   optional    pam_pomelo_keyring.so auto_start
+session    include     postlogin

@@ -1,0 +1,7 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Pomelo 輸入法的佔位檔：Qt 的 IBus 輸入法外掛要在 PATH 找得到 ibus-daemon 才會啟用。
+# 真正服務 Qt 程式的是 pomelo-input（它講 IBus 的協定）；這個檔案不做任何事。
+# pomelo-session 只在系統沒有真的 ibus-daemon 時，把這個資料夾加在 PATH 的最後面。
+echo "這不是真的 ibus-daemon：Qt 程式的輸入由 pomelo-input 提供。" >&2
+exit 0
